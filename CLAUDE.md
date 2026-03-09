@@ -10,7 +10,7 @@ A Java Swing Agar.io clone developed as an AIU Hackathon group project.
 
 **Game concept:** The player controls a circular cell. Eating smaller cells increases the player's size and score. The goal is to achieve the highest score.
 
-**Current status:** Functional single-player game with camera tracking, highscore, sound toggle, and player color selection.
+**Current status:** Functional single-player game with smooth camera tracking, highscore, sound toggle, player color selection, toroidal world wrapping, random enemy sizes, smooth cell spawn animation, eat sound, and animated gradient background.
 
 ---
 
@@ -20,7 +20,7 @@ A Java Swing Agar.io clone developed as an AIU Hackathon group project.
 |------|-----------|
 | Language | Java (standard library only) |
 | GUI | `javax.swing`, `java.awt` |
-| Audio | `javax.sound.sampled` (Clip-based) |
+| Audio | `javax.sound.sampled` (Clip + `SourceDataLine` for programmatic tones) |
 | Build | IntelliJ IDEA / `build.sh` / `build.bat` (no Maven/Gradle) |
 | Packaging | `jpackage` (JDK 14+) via `package.sh` / `package.bat` |
 | Tests | None |
@@ -36,12 +36,12 @@ Agar_io/
 │   ├── MainPanel.java      # Main menu UI
 │   ├── GamePanel.java      # Core game loop, collision, rendering, input, camera
 │   ├── Cell.java           # Cell entity model
-│   ├── Background.java     # Tiled background rendering with camera offset
+│   ├── Background.java     # Animated gradient + drifting blob background rendering
 │   ├── HUD.java            # Score + elapsed time tracking
 │   ├── OptionsPanel.java   # SOUND toggle + COLOR picker settings
 │   ├── Sound.java          # Audio playback wrapper (javax.sound.sampled)
 │   ├── agario.png          # Menu/options background image
-│   ├── background.png      # In-game background image (tiled across world)
+│   ├── background.png      # In-game background image (no longer used — background is procedural)
 │   ├── coolMusic.wav       # Easter egg audio
 │   └── click.wav           # Button click sound
 ├── out/production/Agar_io/ # Compiled .class files (IntelliJ output)
@@ -119,21 +119,23 @@ Note: Assets (`.png`, `.wav`) live in `src/` alongside Java files. The build scr
 ### `GamePanel.java`
 - Extends `JPanel`, implements `KeyListener`
 - **Two daemon game threads:**
-  - `cellThread()` — spawns enemy cells up to max 30 across the world, random 0–12 second intervals
-  - `runGameThread()` — main loop at 10ms tick (~100 FPS); updates player, camera, collision, score
-- **Camera:** `cameraX`/`cameraY` computed each tick; `g2d.translate(-cameraX, -cameraY)` shifts rendering to world space; restored before HUD drawing
-- **Rendering:** overrides `paintComponent(Graphics g)` — call `super.paintComponent(g)` first
+  - `cellThread()` — spawns enemy cells up to max 30 across the world, random 0–12 second intervals; each cell starts with `spawnAlpha = 0f` for grow-in animation
+  - `runGameThread()` — main loop at 10ms tick (~100 FPS); updates player (toroidal wrap), advances `spawnAlpha`, camera lerp, collision, score, eat sound
+- **Camera:** `cameraX`/`cameraY` are `double` fields updated with 15% lerp each tick; wrap-snap (instant jump) when player crosses a world boundary; cast to `int` for `g2d.translate()`
+- **Rendering:** enemy cells drawn with `AlphaComposite` and scaled radius driven by `spawnAlpha`
 - **Score** stored in `hud.score`; `highscore` updated whenever `hud.score > highscore`
 - **Player color:** `static Color playerColor` — set in Options, applied to playerCell on game start
 - **Easter egg:** when `playerCell.cellRad > 400`, plays `coolMusic.wav` and resets timer
 - `colors[]` is `static` so OptionsPanel can reference it for the color picker
+- **Enemy sizing:** `MIN_ENEMY_RAD = 8`, `MAX_ENEMY_RAD = 35`; helper `randomEnemyRadius()` caps at `playerCell.cellRad - 5`
 
 ### `Cell.java`
 - Stores: `x`, `y`, `cellRad`, `cellColor`, `speedX = 5`, `speedY = 5`
+- `spawnAlpha` — `float` field (0 = newly created/invisible, 1 = fully visible); incremented 0.05/tick in `runGameThread`; player cell is set to 1 immediately on creation
 - **Constructor:** `Cell(int centerX, int centerY, int radius)` — sets `x = centerX - radius`, `y = centerY - radius`
-  - The `screenWidth`/`screenHeight` fields are legacy dead code; bounds checking uses `MainClass.WORLD_WIDTH/HEIGHT`
+  - The `screenWidth`/`screenHeight` fields are legacy dead code; bounds use `MainClass.WORLD_WIDTH/HEIGHT`
 - `drawCell(Graphics2D, int radius)` — renders a filled oval at world coordinates
-- `updateCellPos(boolean right, left, up, down)` — moves with boundary checks against world bounds (`WORLD_WIDTH`, `WORLD_HEIGHT`)
+- `updateCellPos(boolean right, left, up, down)` — moves then wraps position toroidally (modular arithmetic on the cell center); player emerges from the opposite side when reaching any world edge
 - `isCollision(Cell player, Cell enemy)` — circle-circle collision:
   - Only triggers if `playerRad > enemyRad + 4` (minimum 4-unit size advantage)
   - Center-to-center distance formula
@@ -144,8 +146,12 @@ Note: Assets (`.png`, `.wav`) live in `src/` alongside Java files. The build scr
 - `elapsedTime` — milliseconds since `startTime`; reset by `resetTime()` on easter egg trigger
 
 ### `Background.java`
-- Loads and tiles `background.png` across the visible viewport
-- `drawBackground(Graphics2D g, int cameraX, int cameraY)` — call while transform is `translate(-cameraX, -cameraY)`; draws enough tiles to fill `screenWidth × screenHeight` from the camera position
+- Procedural animated background — no image file required
+- Initialises 12 "blob" entities: random world positions, slow random velocities, large radii (150–500), individual hue and alpha
+- `drawBackground(Graphics2D g, int cameraX, int cameraY)` — call while transform is `translate(-cameraX, -cameraY)`:
+  1. Advances `phase` (0.002/call) for overall color cycling
+  2. Fills viewport with a `GradientPaint` derived from `Color.getHSBColor(phase, ...)`
+  3. Moves each blob with toroidal wrap, shifts its hue, draws it as a `RadialGradientPaint` oval if visible
 
 ### `MainPanel.java`
 - Main menu with START, OPTIONS, EXIT buttons
@@ -159,6 +165,7 @@ Note: Assets (`.png`, `.wav`) live in `src/` alongside Java files. The build scr
 - Constructor: `new Sound(filename, soundSeconds)`
 - Play: `sound.playSound()` — no-ops when `soundEnabled == false`
 - Stop: `sound.closeSound()`
+- `static void playEatSound()` — generates a 150 ms descending sine sweep (600 → 200 Hz) via `SourceDataLine` directly in memory; no `.wav` file needed; runs on a daemon thread; respects `soundEnabled`
 - All threads set as daemon threads
 
 ### `OptionsPanel.java`
@@ -197,19 +204,24 @@ t.start();
 ### Camera System
 World objects are rendered in world space, HUD in screen space:
 ```java
-g2d.translate(-cameraX, -cameraY);   // enter world space
-background.drawBackground(g2d, cameraX, cameraY);
+int camX = (int) cameraX;
+int camY = (int) cameraY;
+g2d.translate(-camX, -camY);   // enter world space
+background.drawBackground(g2d, camX, camY);
 // draw cells and player at their world x, y
-g2d.translate(cameraX, cameraY);     // restore screen space
+g2d.translate(camX, camY);     // restore screen space
 // draw HUD elements at screen coordinates
 ```
 
-Camera position computed each tick:
+Camera uses smooth lerp each tick (15% per frame) with instant snap on world-boundary wrap:
 ```java
-int cx = playerCell.x + playerCell.cellRad - SCREEN_WIDTH / 2;
-int cy = playerCell.y + playerCell.cellRad - SCREEN_HEIGHT / 2;
-cameraX = clamp(cx, 0, WORLD_WIDTH  - SCREEN_WIDTH);
-cameraY = clamp(cy, 0, WORLD_HEIGHT - SCREEN_HEIGHT);
+double targetX = clamp(playerCell.x + playerCell.cellRad - SCREEN_WIDTH  / 2.0, 0, WORLD_WIDTH  - SCREEN_WIDTH);
+double targetY = clamp(playerCell.y + playerCell.cellRad - SCREEN_HEIGHT / 2.0, 0, WORLD_HEIGHT - SCREEN_HEIGHT);
+// Snap instantly if player wrapped (delta > half world size)
+if (Math.abs(targetX - cameraX) > WORLD_WIDTH  / 2.0) cameraX = targetX;
+if (Math.abs(targetY - cameraY) > WORLD_HEIGHT / 2.0) cameraY = targetY;
+cameraX += (targetX - cameraX) * 0.15;
+cameraY += (targetY - cameraY) * 0.15;
 ```
 
 ### Cell Growth Formula (volume-based)
@@ -237,8 +249,8 @@ public static Color[] colors = {BLACK, BLUE, CYAN, DARK_GRAY, GRAY, GREEN, LIGHT
 1. **JavaDoc on every class** — include `@author` tag, brief purpose, and notable behavior.
 2. **Use `MainClass` constants** for screen, world, and button dimensions — never hardcode `1280`, `720`, `3840`, `2160`, `200`, or `50`.
 3. **Player initial state:** radius `cellrad = 18`, spawns at world center `(WORLD_WIDTH/2, WORLD_HEIGHT/2)`, color = `GamePanel.playerColor`.
-4. **Enemy cell radius:** always `rndcellrad = 13`.
-5. **Spawn positions use world coordinates** — random in `[rndcellrad, WORLD_WIDTH - rndcellrad]` × `[rndcellrad, WORLD_HEIGHT - rndcellrad - 25]`.
+4. **Enemy cell radius:** random between `MIN_ENEMY_RAD = 8` and `MIN(MAX_ENEMY_RAD=35, playerCell.cellRad - 5)` — never larger than the player. Use `randomEnemyRadius()` for all spawns.
+5. **Spawn positions use world coordinates** — random in `[SPAWN_BORDER=40, WORLD_WIDTH - SPAWN_BORDER]` × `[SPAWN_BORDER, WORLD_HEIGHT - SPAWN_BORDER]`.
 6. **Assets live in `src/`** alongside Java files — do not create a separate `resources/` directory without updating the build setup.
 7. **No external libraries** — the project has no dependency manager; do not add third-party JARs without establishing a build system first.
 8. **All game threads are daemon threads** — they terminate automatically when the JVM exits.
