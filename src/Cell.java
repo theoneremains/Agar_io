@@ -36,22 +36,22 @@ public class Cell
     {
         if(right)
         {
-            if(x + cellRad < MainClass.SCREEN_WIDTH)
+            if(x + cellRad < MainClass.WORLD_WIDTH)
                 x += speedX;
         }
         if(left)
         {
-            if(x > -cellRad)
+            if(x > 0)
                 x -= speedX;
         }
         if(up)
         {
-            if(y > -cellRad)
+            if(y > 0)
                 y -= speedY;
         }
         if(down)
         {
-            if(y + cellRad < MainClass.SCREEN_HEIGHT)
+            if(y + cellRad < MainClass.WORLD_HEIGHT)
                 y += speedY;
         }
     }

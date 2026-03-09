@@ -1,18 +1,20 @@
 import javax.swing.*;
 
 /**
- * MainClass class : Holds the width and height of the screen, creates the frame for the game
+ * MainClass class : Holds the width and height of the screen and the game world, creates the frame for the game
  * Has access to the panels, and all panels are connected to this frame
  * Run the game through here
- * This game is still incomplete!!!
  * @author Kamil Yunus Özkaya
  */
 public class MainClass extends JFrame
 {
-    public static int SCREEN_WIDTH = 1280;
+    public static int SCREEN_WIDTH  = 1280;
     public static int SCREEN_HEIGHT = 720;
 
-    public static int BUTTON_WIDTH = 200;
+    public static int WORLD_WIDTH  = 3840;
+    public static int WORLD_HEIGHT = 2160;
+
+    public static int BUTTON_WIDTH  = 200;
     public static int BUTTON_HEIGHT = 50;
 
     public MainPanel mainPanel;

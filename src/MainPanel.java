@@ -76,16 +76,22 @@ public class MainPanel extends JPanel
     }
 
     @Override
+    protected void paintComponent(Graphics g)
+    {
+        super.paintComponent(g);
+        g.drawImage(backgroundImg, 0, 0, null);
+    }
+
+    @Override
     public void paint(Graphics g)
     {
-        g.drawImage(backgroundImg, 0,0,null);
-        paintComponents(g);
+        super.paint(g); // paints background, border, and child components (buttons)
         g.setColor(Color.BLUE);
         g.setFont(new Font("", Font.BOLD, 10));
-        g.drawString("High Score " + GamePanel.highscore,10,20);
+        g.drawString("High Score " + GamePanel.highscore, 10, 20);
         g.setColor(Color.BLACK);
         g.setFont(new Font("", Font.BOLD, 55));
-        g.drawString("Agar.io",(MainClass.SCREEN_WIDTH - MainClass.BUTTON_WIDTH) / 2, (MainClass.SCREEN_HEIGHT - MainClass.BUTTON_HEIGHT) / 2 - 4 * MainClass.BUTTON_HEIGHT);
+        g.drawString("Agar.io", (MainClass.SCREEN_WIDTH - MainClass.BUTTON_WIDTH) / 2, (MainClass.SCREEN_HEIGHT - MainClass.BUTTON_HEIGHT) / 2 - 4 * MainClass.BUTTON_HEIGHT);
     }
 
 }
