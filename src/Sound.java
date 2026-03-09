@@ -1,22 +1,22 @@
-import sun.audio.AudioPlayer;
-import sun.audio.AudioStream;
-
+import javax.sound.sampled.*;
 import java.io.IOException;
-import java.io.InputStream;
+import java.net.URL;
 
 /**
- * Sound class : Takes the sound file as a string given with the address location on your computer and plays it
+ * Sound class : Takes the sound file as a string and plays it using javax.sound.sampled
  * @author Kamil Yunus Özkaya
  */
 public class Sound {
 
-    AudioStream audioStream;
+    public static boolean soundEnabled = true;
+
+    private Clip clip;
 
     public int soundSeconds = 0;
 
     public String soundFile;
 
-    public Sound(String soundFile,int soundSeconds)
+    public Sound(String soundFile, int soundSeconds)
     {
         this.soundFile = soundFile;
 
@@ -24,36 +24,37 @@ public class Sound {
     }
 
     /**
-     * playSound : Starts the sound file
+     * playSound : Starts the sound file. Respects the soundEnabled toggle.
      */
     public void playSound()
     {
-        InputStream inputStream = getClass().getResourceAsStream(soundFile);
+        if (!soundEnabled) return;
         try
         {
-            audioStream = new AudioStream(inputStream);
+            URL url = getClass().getResource(soundFile);
+            if (url == null) return;
+            AudioInputStream ais = AudioSystem.getAudioInputStream(url);
+            clip = AudioSystem.getClip();
+            clip.open(ais);
+            clip.start();
         }
-        catch(IOException e)
+        catch (UnsupportedAudioFileException | LineUnavailableException | IOException e)
         {
             e.printStackTrace();
         }
-
-        AudioPlayer.player.start(audioStream);
     }
 
     /**
-     * closeSound : If needed, closes the music
-     * Not used in the game
+     * closeSound : Stops the currently playing sound clip
      */
     public void closeSound()
     {
-        AudioPlayer.player.stop(audioStream);
+        if (clip != null && clip.isRunning()) clip.stop();
     }
 
     /**
-     * runSoundThread : Lets the music repeated in the background via a thread, in given seconds
-     * If you want to put a music you can call the sound file using this method
-     * Not used in the game
+     * runSoundThread : Lets the music repeat in the background via a daemon thread
+     * If you want to put looping music, call this method instead of playSound()
      */
     public void runSoundThread()
     {
@@ -62,22 +63,22 @@ public class Sound {
             @Override
             public void run()
             {
-                while(true)
+                while (true)
                 {
-                    if(soundSeconds != 0)
-                        playSound();
+                    if (soundSeconds != 0) playSound();
                     try
                     {
-                        Thread.sleep(soundSeconds * 1000);
-                        AudioPlayer.player.stop(audioStream);
+                        Thread.sleep(soundSeconds * 1000L);
                     }
-                    catch(InterruptedException e)
+                    catch (InterruptedException e)
                     {
                         e.printStackTrace();
                     }
+                    closeSound();
                 }
             }
         };
+        thread.setDaemon(true);
         thread.start();
     }
 }
