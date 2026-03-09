@@ -46,6 +46,10 @@ public class MainPanel extends JPanel
         }
         startButton.addActionListener(arg0 -> {
             click_sound.playSound();
+            // Ask the player for a name before starting the game
+            String name = JOptionPane.showInputDialog(mainClass, "Enter your name:", "Player");
+            if (name == null || name.trim().isEmpty()) name = "Player";
+            GamePanel.playerName = name.trim();
             mainClass.gamePanel = new GamePanel(mainClass);
             mainClass.getContentPane().removeAll();
             mainClass.getContentPane().add(mainClass.gamePanel);
