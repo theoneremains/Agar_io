@@ -15,15 +15,56 @@ Controls: **WASD** or **Arrow Keys** to move, **ESC** to return to the main menu
   - **SOUND** — toggle all game sounds on/off
   - **COLOR** — cycle through available player cell colors
 
-## How to Run
-Open the project in **IntelliJ IDEA** (`Agar_io.iml`) and run `MainClass`.
+## Installation & Running
 
-Or from the command line:
+### Option 1 — Native Installer (recommended, no Java required)
+
+Build a self-contained installer that bundles its own JRE. Users just install and double-click.
+
+**Prerequisites:** JDK 14+ on the *developer* machine. On Windows, also install [WiX Toolset 3.x](https://wixtoolset.org/) for `.exe` output.
+
+```bat
+:: Windows — produces dist\AgarIO-1.0.exe
+package.bat
+```
+```bash
+# Linux  → dist/agario_1.0_amd64.deb  (or .rpm / app-image)
+# macOS  → dist/AgarIO-1.0.dmg
+bash package.sh
+```
+
+Distribute the file in `dist/` — recipients do **not** need Java installed.
+
+---
+
+### Option 2 — Runnable JAR (requires Java 8+ on target machine)
+
+```bat
+:: Windows
+build.bat
+java -jar AgarIO.jar
+```
+```bash
+# Linux / macOS
+bash build.sh
+java -jar AgarIO.jar
+```
+
+---
+
+### Option 3 — IntelliJ IDEA (for development)
+
+Open `Agar_io.iml` in IntelliJ IDEA and run `MainClass`.
+
+---
+
+### Option 4 — Raw command line
+
 ```bash
 javac -d out/production/Agar_io src/*.java
+cp src/*.png src/*.wav out/production/Agar_io/
 java -cp out/production/Agar_io MainClass
 ```
-Note: copy the `.png` and `.wav` files from `src/` into `out/production/Agar_io/` if running from the command line.
 
 ## Known Limitations
 - Single player only (no multiplayer)
