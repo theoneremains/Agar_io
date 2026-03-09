@@ -6,15 +6,21 @@ Group Members : Kamil Yunus Özkaya, Mert Efe Sevim, Ahmet Kurt
 You are a circular cell that can eat other cells smaller than you, and you get bigger. Score increases as player eats other cells.
 Aim is to get the highest score!
 
-Controls: **WASD** or **Arrow Keys** to move, **ESC** to return to the main menu.
+Controls: **WASD** or **Arrow Keys** to move, **ESC** to return to the main menu, **Ctrl+I** (or **Cmd+I** on macOS) to open the developer log.
 
 ## Features
 - Camera follows the player cell across a large scrolling world (3840 × 2160) with smooth lerp
 - **Toroidal world wrapping** — move off any edge and emerge from the opposite side seamlessly
 - **Enemy cells with random sizes** — radius varies from 8 to 35 pixels (capped below the player's current size), making every encounter feel different
+- **No-overlap spawning** — new enemy cells are guaranteed not to appear on top of the player or existing cells (up to 50 retry attempts per spawn)
+- **Volume-based growth** — eating a cell always grows the player by at least the eaten cell's radius, never just 1 pixel
+- **Anti-aliased rendering** — all cells are drawn with `RenderingHints.VALUE_ANTIALIAS_ON` for smooth, round edges
+- **Player name** — enter your name before each game; it is displayed centered and font-size fitted inside your cell as it grows
+- **Dynamic player speed** — starts at 7 px/tick at radius 18; speed scales down as the player grows but never reaches zero (`max(1, 7 × 18 / radius)`)
 - **Smooth cell spawn animation** — new enemy cells grow in over ~200 ms instead of appearing instantly
 - **Eat sound effect** — a short descending "bloop" tone plays each time a cell is consumed (generated programmatically, no extra audio file needed); respects the SOUND toggle
 - **Animated gradient background** — slowly shifting pastel colors with 12 drifting semi-transparent cell-like blobs replace the former static image
+- **Developer log (Ctrl+I / Cmd+I)** — pauses the game and opens an editable overlay showing: player name, radius, score, speed (X/Y), world position, and live enemy count. All fields are editable; click "Apply & Resume" or close the window to resume play. Tick "Manual Speed Override" to pin speed independently of the dynamic calculation.
 - Highscore is tracked and displayed on the main menu between games
 - Options menu:
   - **SOUND** — toggle all game sounds on/off

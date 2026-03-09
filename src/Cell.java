@@ -1,5 +1,6 @@
 
 import java.awt.*;
+import java.awt.RenderingHints;
 
 /**
  * Cell class : Creates cells, checks the collision of cells
@@ -32,6 +33,8 @@ public class Cell
 
     public void drawCell(Graphics2D cell,int cellRad)
     {
+        cell.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
+        cell.setRenderingHint(RenderingHints.KEY_RENDERING,    RenderingHints.VALUE_RENDER_QUALITY);
         cell.setColor(cellColor);
         cell.fillOval(x, y, cellRad*2, cellRad*2);
     }

@@ -10,7 +10,7 @@ A Java Swing Agar.io clone developed as an AIU Hackathon group project.
 
 **Game concept:** The player controls a circular cell. Eating smaller cells increases the player's size and score. The goal is to achieve the highest score.
 
-**Current status:** Functional single-player game with smooth camera tracking, highscore, sound toggle, player color selection, toroidal world wrapping, random enemy sizes, smooth cell spawn animation, eat sound, and animated gradient background.
+**Current status:** Functional single-player game with smooth camera tracking, highscore, sound toggle, player color selection, toroidal world wrapping, random enemy sizes, smooth cell spawn animation, eat sound, animated gradient background, anti-aliased rendering, player name display, dynamic speed, no-overlap spawn, volume-based growth, and an in-game developer log.
 
 ---
 
@@ -33,13 +33,14 @@ A Java Swing Agar.io clone developed as an AIU Hackathon group project.
 Agar_io/
 ├── src/                    # All Java source files + game assets
 │   ├── MainClass.java      # Entry point, JFrame container, global constants
-│   ├── MainPanel.java      # Main menu UI
+│   ├── MainPanel.java      # Main menu UI (name input prompt on START)
 │   ├── GamePanel.java      # Core game loop, collision, rendering, input, camera
 │   ├── Cell.java           # Cell entity model
 │   ├── Background.java     # Animated gradient + drifting blob background rendering
 │   ├── HUD.java            # Score + elapsed time tracking
 │   ├── OptionsPanel.java   # SOUND toggle + COLOR picker settings
 │   ├── Sound.java          # Audio playback wrapper (javax.sound.sampled)
+│   ├── DevLogDialog.java   # Developer log window (Ctrl+I) — pauses game, editable world stats
 │   ├── agario.png          # Menu/options background image
 │   ├── background.png      # In-game background image (no longer used — background is procedural)
 │   ├── coolMusic.wav       # Easter egg audio
@@ -120,21 +121,26 @@ Note: Assets (`.png`, `.wav`) live in `src/` alongside Java files. The build scr
 - Extends `JPanel`, implements `KeyListener`
 - **Two daemon game threads:**
   - `cellThread()` — spawns enemy cells up to max 30 across the world, random 0–12 second intervals; each cell starts with `spawnAlpha = 0f` for grow-in animation
-  - `runGameThread()` — main loop at 10ms tick (~100 FPS); updates player (toroidal wrap), advances `spawnAlpha`, camera lerp, collision, score, eat sound
+  - `runGameThread()` — main loop at 10ms tick (~100 FPS); updates player (toroidal wrap), advances `spawnAlpha`, camera lerp, collision, score, eat sound; skips all logic when `paused == true`
 - **Camera:** `cameraX`/`cameraY` are `double` fields updated with 15% lerp each tick; wrap-snap (instant jump) when player crosses a world boundary; cast to `int` for `g2d.translate()`
-- **Rendering:** enemy cells drawn with `AlphaComposite` and scaled radius driven by `spawnAlpha`
+- **Rendering:** enemy cells drawn with `AlphaComposite` and scaled radius driven by `spawnAlpha`; full anti-aliasing (`RenderingHints.VALUE_ANTIALIAS_ON`) applied at top of `paintComponent`
 - **Score** stored in `hud.score`; `highscore` updated whenever `hud.score > highscore`
 - **Player color:** `static Color playerColor` — set in Options, applied to playerCell on game start
+- **Player name:** `static String playerName` — set from the main menu name dialog before each game; rendered centered and font-size fitted inside the player cell (`fontSize = max(8, min(cellRad/2, 24))`)
+- **Dynamic speed:** `BASE_SPEED=7` at `INITIAL_RAD=18`; formula `max(MIN_SPEED=1, BASE_SPEED × INITIAL_RAD / cellRad)` applied every tick unless `devSpeedOverride` is true
+- **No-overlap spawn:** `generateNonOverlappingCell()` tries up to 50 positions; checks clearance against player and all existing cells before placing a new enemy
+- **Growth formula fallback:** if volume-based formula does not increase radius, player grows by `eatenRad` (not +1)
 - **Easter egg:** when `playerCell.cellRad > 400`, plays `coolMusic.wav` and resets timer
 - `colors[]` is `static` so OptionsPanel can reference it for the color picker
 - **Enemy sizing:** `MIN_ENEMY_RAD = 8`, `MAX_ENEMY_RAD = 35`; helper `randomEnemyRadius()` caps at `playerCell.cellRad - 5`
+- **Developer log:** `paused` (`volatile boolean`), `devSpeedOverride` (`boolean`), `devLogDialog` reference; `toggleDevLog()` opens/closes `DevLogDialog`; Ctrl+I / Meta+I key binding in `keyPressed`
 
 ### `Cell.java`
-- Stores: `x`, `y`, `cellRad`, `cellColor`, `speedX = 5`, `speedY = 5`
+- Stores: `x`, `y`, `cellRad`, `cellColor`, `speedX`, `speedY`
 - `spawnAlpha` — `float` field (0 = newly created/invisible, 1 = fully visible); incremented 0.05/tick in `runGameThread`; player cell is set to 1 immediately on creation
 - **Constructor:** `Cell(int centerX, int centerY, int radius)` — sets `x = centerX - radius`, `y = centerY - radius`
   - The `screenWidth`/`screenHeight` fields are legacy dead code; bounds use `MainClass.WORLD_WIDTH/HEIGHT`
-- `drawCell(Graphics2D, int radius)` — renders a filled oval at world coordinates
+- `drawCell(Graphics2D, int radius)` — enables `RenderingHints.VALUE_ANTIALIAS_ON`, then renders a filled oval at world coordinates
 - `updateCellPos(boolean right, left, up, down)` — moves then wraps position toroidally (modular arithmetic on the cell center); player emerges from the opposite side when reaching any world edge
 - `isCollision(Cell player, Cell enemy)` — circle-circle collision:
   - Only triggers if `playerRad > enemyRad + 4` (minimum 4-unit size advantage)
@@ -156,8 +162,18 @@ Note: Assets (`.png`, `.wav`) live in `src/` alongside Java files. The build scr
 ### `MainPanel.java`
 - Main menu with START, OPTIONS, EXIT buttons
 - Button clicks play `click.wav`
-- START creates `new GamePanel(mainClass)` and swaps panels
+- START shows a `JOptionPane.showInputDialog` for the player's name, stores it in `GamePanel.playerName`, then creates `new GamePanel(mainClass)` and swaps panels
 - `paintComponent` draws background image; `paint` calls `super.paint(g)` then overlays title and highscore text
+
+### `DevLogDialog.java`
+- Non-modal `JDialog` opened/closed by `GamePanel.toggleDevLog()` via Ctrl+I / Meta+I
+- Sets `gamePanel.paused = true` on open; `false` on close
+- **Editable fields:** Player Name, Player Radius, Score, Speed X, Speed Y, Position X, Position Y
+- **Manual Speed Override checkbox:** when checked, sets `gamePanel.devSpeedOverride = true`, preventing automatic speed recalculation each tick
+- **Enemy cell count** displayed as a read-only label
+- **Refresh button** re-reads current game state into the fields
+- **Apply & Resume button** (and X window close) validates input, writes values to `gamePanel.playerCell` / `GamePanel.playerName` / `gamePanel.hud.score`, then unpauses the game
+- Ctrl+I / Meta+I keyboard shortcut (via `getRootPane().getInputMap`) also closes the dialog
 
 ### `Sound.java`
 - Wraps `javax.sound.sampled.Clip` for `.wav` playback
@@ -229,8 +245,31 @@ cameraY += (targetY - cameraY) * 0.15;
 int eatenRad = celllist.get(i).cellRad; // save BEFORE removing from list
 celllist.remove(i);
 int newRad = (int) Math.pow(Math.pow(playerCell.cellRad, 3) + Math.pow(eatenRad, 3), 1.0 / 3);
-if (newRad <= playerCell.cellRad) newRad = playerCell.cellRad + 1;
+// Fallback: always grow by at least the eaten cell's radius (never just +1)
+if (newRad <= playerCell.cellRad) newRad = playerCell.cellRad + eatenRad;
 playerCell.cellRad = newRad;
+```
+
+### Dynamic Speed Formula
+```java
+// Applied every tick in runGameThread (unless devSpeedOverride is true)
+int dynSpeed = Math.max(MIN_SPEED, (int)(BASE_SPEED * (double) INITIAL_RAD / playerCell.cellRad));
+playerCell.speedX = dynSpeed;
+playerCell.speedY = dynSpeed;
+// BASE_SPEED=7, INITIAL_RAD=18, MIN_SPEED=1
+// e.g. rad=18 → speed=7, rad=36 → speed=3, rad=90 → speed=1 (min)
+```
+
+### No-overlap Spawn
+```java
+// GamePanel.generateNonOverlappingCell() — called for every new enemy cell
+for (int attempt = 0; attempt < 50; attempt++) {
+    // ... pick random cx, cy, r ...
+    // reject if within (playerCell.cellRad + r + 20) of player center
+    // reject if within (c.cellRad + r + 10) of any existing cell
+    // accept if no overlap found
+}
+// Fallback after 50 attempts: place anyway (rare)
 ```
 
 ### Thread Safety
@@ -251,9 +290,13 @@ public static Color[] colors = {BLACK, BLUE, CYAN, DARK_GRAY, GRAY, GREEN, LIGHT
 3. **Player initial state:** radius `cellrad = 18`, spawns at world center `(WORLD_WIDTH/2, WORLD_HEIGHT/2)`, color = `GamePanel.playerColor`.
 4. **Enemy cell radius:** random between `MIN_ENEMY_RAD = 8` and `MIN(MAX_ENEMY_RAD=35, playerCell.cellRad - 5)` — never larger than the player. Use `randomEnemyRadius()` for all spawns.
 5. **Spawn positions use world coordinates** — random in `[SPAWN_BORDER=40, WORLD_WIDTH - SPAWN_BORDER]` × `[SPAWN_BORDER, WORLD_HEIGHT - SPAWN_BORDER]`.
-6. **Assets live in `src/`** alongside Java files — do not create a separate `resources/` directory without updating the build setup.
-7. **No external libraries** — the project has no dependency manager; do not add third-party JARs without establishing a build system first.
-8. **All game threads are daemon threads** — they terminate automatically when the JVM exits.
+6. **All new enemy cell spawns go through `generateNonOverlappingCell()`** — never place cells directly without the overlap check.
+7. **Growth fallback uses `eatenRad`, not `+1`** — `if (newRad <= playerCell.cellRad) newRad = playerCell.cellRad + eatenRad`.
+8. **Anti-aliasing must be enabled** at the top of `paintComponent` and inside `Cell.drawCell` via `RenderingHints.VALUE_ANTIALIAS_ON`.
+9. **Assets live in `src/`** alongside Java files — do not create a separate `resources/` directory without updating the build setup.
+10. **No external libraries** — the project has no dependency manager; do not add third-party JARs without establishing a build system first.
+11. **All game threads are daemon threads** — they terminate automatically when the JVM exits.
+12. **`paused` flag must be `volatile`** — it is written by the Swing EDT (key events, dialog close) and read by the game thread.
 
 ---
 
