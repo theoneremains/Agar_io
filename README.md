@@ -9,7 +9,12 @@ Aim is to get the highest score!
 Controls: **WASD** or **Arrow Keys** to move, **ESC** to return to the main menu.
 
 ## Features
-- Camera follows the player cell across a large scrolling world (3840 × 2160)
+- Camera follows the player cell across a large scrolling world (3840 × 2160) with smooth lerp
+- **Toroidal world wrapping** — move off any edge and emerge from the opposite side seamlessly
+- **Enemy cells with random sizes** — radius varies from 8 to 35 pixels (capped below the player's current size), making every encounter feel different
+- **Smooth cell spawn animation** — new enemy cells grow in over ~200 ms instead of appearing instantly
+- **Eat sound effect** — a short descending "bloop" tone plays each time a cell is consumed (generated programmatically, no extra audio file needed); respects the SOUND toggle
+- **Animated gradient background** — slowly shifting pastel colors with 12 drifting semi-transparent cell-like blobs replace the former static image
 - Highscore is tracked and displayed on the main menu between games
 - Options menu:
   - **SOUND** — toggle all game sounds on/off

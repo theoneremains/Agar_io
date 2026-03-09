@@ -4,6 +4,8 @@ import java.awt.*;
 /**
  * Cell class : Creates cells, checks the collision of cells
  * Updates the position of cells
+ * Supports smooth spawn animation via spawnAlpha (0=invisible, 1=fully visible)
+ * Player cell wraps toroidally around world boundaries instead of stopping
  * @author Kamil Yunus Özkaya
  */
 public class Cell
@@ -17,6 +19,8 @@ public class Cell
     public int screenHeight;
     private int radiusDifference = 4;
     public Color cellColor = Color.BLACK;
+    /** Spawn animation progress: 0 = just created (invisible), 1 = fully visible */
+    public float spawnAlpha = 0f;
     public Cell(int screenWidth, int screenHeight, int cellRad)
     {
         this.cellRad = cellRad;
@@ -34,26 +38,16 @@ public class Cell
 
     public void updateCellPos(boolean right, boolean left, boolean up, boolean down)
     {
-        if(right)
-        {
-            if(x + cellRad < MainClass.WORLD_WIDTH)
-                x += speedX;
-        }
-        if(left)
-        {
-            if(x > 0)
-                x -= speedX;
-        }
-        if(up)
-        {
-            if(y > 0)
-                y -= speedY;
-        }
-        if(down)
-        {
-            if(y + cellRad < MainClass.WORLD_HEIGHT)
-                y += speedY;
-        }
+        if(right) x += speedX;
+        if(left)  x -= speedX;
+        if(up)    y -= speedY;
+        if(down)  y += speedY;
+
+        // Toroidal world wrapping: player emerges from opposite side when reaching any edge
+        int cx = ((x + cellRad) % MainClass.WORLD_WIDTH  + MainClass.WORLD_WIDTH)  % MainClass.WORLD_WIDTH;
+        int cy = ((y + cellRad) % MainClass.WORLD_HEIGHT + MainClass.WORLD_HEIGHT) % MainClass.WORLD_HEIGHT;
+        x = cx - cellRad;
+        y = cy - cellRad;
     }
     //Checks the collision of the cells based on circle collision
     public boolean isCollision (Cell playerCell, Cell randomCell){

@@ -12,7 +12,8 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * It creates the user cell in the middle of the world and random cells in random places
  * Puts the randomcells in a thread-safe CopyOnWriteArrayList
  * When player cell eats a random cell its size is increased as well as the score
- * Camera follows the player cell, revealing a world larger than the screen
+ * Camera follows the player cell with smooth lerp, supporting toroidal world wrapping
+ * Enemy cells have random sizes and appear with a smooth grow-in animation
  * @author Kamil Yunus Özkaya
  */
 public class GamePanel extends JPanel implements KeyListener {
@@ -35,20 +36,24 @@ public class GamePanel extends JPanel implements KeyListener {
 
     public Cell playerCell, randomCell, coloredCell;
 
-    public int cellrad = 18;                            //Radius of the player cell is 18 initially
+    public int cellrad = 18;                            // Radius of the player cell initially
 
-    public int rndcellrad = 13;                         //All random cells have radius of 13
+    // Enemy cell size bounds (random per spawn, capped below player size)
+    private static final int MIN_ENEMY_RAD    = 8;
+    private static final int MAX_ENEMY_RAD    = 35;
+    private static final int SPAWN_BORDER     = 40;    // spawn boundary buffer
 
-    private Sound music = new Sound("coolMusic.wav", 1); //This is just for trolling the end of the game :)
+    private Sound music = new Sound("coolMusic.wav", 1); // Easter egg music
 
     public int mus = 0;
 
-    private int cameraX = 0;
-    private int cameraY = 0;
+    // Camera position in world coordinates (double for smooth lerp)
+    private double cameraX = 0;
+    private double cameraY = 0;
 
     MainClass mainClass;
 
-    //Creates the panel and runs the threads
+    // Creates the panel and runs the threads
     public GamePanel(MainClass mainClass) {
 
         this.mainClass = mainClass;
@@ -66,12 +71,13 @@ public class GamePanel extends JPanel implements KeyListener {
         // Player spawns at the center of the world
         playerCell = new Cell(MainClass.WORLD_WIDTH / 2, MainClass.WORLD_HEIGHT / 2, cellrad);
         playerCell.cellColor = playerColor;
+        playerCell.spawnAlpha = 1f; // player appears immediately
 
         // First enemy cell at a random world position
         randomCell = new Cell(
-                rndcellrad + random.nextInt(MainClass.WORLD_WIDTH - 2 * rndcellrad),
-                rndcellrad + random.nextInt(MainClass.WORLD_HEIGHT - 2 * rndcellrad - 25),
-                rndcellrad);
+                SPAWN_BORDER + random.nextInt(MainClass.WORLD_WIDTH  - 2 * SPAWN_BORDER),
+                SPAWN_BORDER + random.nextInt(MainClass.WORLD_HEIGHT - 2 * SPAWN_BORDER),
+                randomEnemyRadius());
         randomCell.cellColor = Color.BLUE;
         celllist.add(randomCell);
 
@@ -80,7 +86,14 @@ public class GamePanel extends JPanel implements KeyListener {
         runGameThread();
     }
 
-    //Randomly creates cells in random world positions
+    /** Returns a random enemy radius between MIN_ENEMY_RAD and MAX_ENEMY_RAD,
+     *  capped to stay at least 5 units smaller than the player's current radius. */
+    private int randomEnemyRadius() {
+        int cap = Math.min(MAX_ENEMY_RAD, Math.max(MIN_ENEMY_RAD + 1, playerCell.cellRad - 5));
+        return MIN_ENEMY_RAD + random.nextInt(cap - MIN_ENEMY_RAD + 1);
+    }
+
+    // Randomly creates cells in random world positions
     public void cellThread() {
         Thread cellthread = new Thread() {
             @Override
@@ -88,15 +101,16 @@ public class GamePanel extends JPanel implements KeyListener {
                 while (true) {
                     if (celllist.size() < 30) {
                         coloredCell = new Cell(
-                                rndcellrad + random.nextInt(MainClass.WORLD_WIDTH - 2 * rndcellrad),
-                                rndcellrad + random.nextInt(MainClass.WORLD_HEIGHT - 2 * rndcellrad - 25),
-                                rndcellrad);
+                                SPAWN_BORDER + random.nextInt(MainClass.WORLD_WIDTH  - 2 * SPAWN_BORDER),
+                                SPAWN_BORDER + random.nextInt(MainClass.WORLD_HEIGHT - 2 * SPAWN_BORDER),
+                                randomEnemyRadius());
                         coloredCell.cellColor = colors[random.nextInt(colors.length)];
+                        // spawnAlpha starts at 0 — grow-in animation handled in runGameThread
                         celllist.add(coloredCell);
                     }
                     repaint();
                     try {
-                        Thread.sleep(random.nextInt(12) * 1000); //From 0 to 12 seconds it creates random cells
+                        Thread.sleep(random.nextInt(12) * 1000); // 0–12 seconds between spawns
                     } catch (InterruptedException e) {
                         e.printStackTrace();
                     }
@@ -107,53 +121,66 @@ public class GamePanel extends JPanel implements KeyListener {
         cellthread.start();
     }
 
-    //Game runs in this thread
+    // Game runs in this thread
     public void runGameThread() {
         Thread thread = new Thread() {
             @Override
             public void run() {
                 while (true) {
-                    playerCell.updateCellPos(right, left, up, down); //Position of the cell is updated
+                    playerCell.updateCellPos(right, left, up, down); // position updated (toroidal)
 
-                    // Update camera to follow player (clamped to world bounds)
-                    int cx = playerCell.x + playerCell.cellRad - MainClass.SCREEN_WIDTH / 2;
-                    int cy = playerCell.y + playerCell.cellRad - MainClass.SCREEN_HEIGHT / 2;
-                    cameraX = Math.max(0, Math.min(cx, MainClass.WORLD_WIDTH - MainClass.SCREEN_WIDTH));
-                    cameraY = Math.max(0, Math.min(cy, MainClass.WORLD_HEIGHT - MainClass.SCREEN_HEIGHT));
+                    // Advance spawn animation for all enemy cells
+                    for (Cell c : celllist) {
+                        if (c.spawnAlpha < 1f) c.spawnAlpha = Math.min(1f, c.spawnAlpha + 0.05f);
+                    }
 
-                    repaint(); //Draw everything again when thread is executed
-                    hud.getElapsedTime(); //Each time thread executed, we get the elapsed time
+                    // Smooth camera lerp — follows player center
+                    double targetX = playerCell.x + playerCell.cellRad - MainClass.SCREEN_WIDTH  / 2.0;
+                    double targetY = playerCell.y + playerCell.cellRad - MainClass.SCREEN_HEIGHT / 2.0;
+                    targetX = Math.max(0, Math.min(targetX, MainClass.WORLD_WIDTH  - MainClass.SCREEN_WIDTH));
+                    targetY = Math.max(0, Math.min(targetY, MainClass.WORLD_HEIGHT - MainClass.SCREEN_HEIGHT));
+
+                    // Snap camera instantly when player wraps across a world boundary
+                    if (Math.abs(targetX - cameraX) > MainClass.WORLD_WIDTH  / 2.0) cameraX = targetX;
+                    if (Math.abs(targetY - cameraY) > MainClass.WORLD_HEIGHT / 2.0) cameraY = targetY;
+
+                    cameraX += (targetX - cameraX) * 0.15;
+                    cameraY += (targetY - cameraY) * 0.15;
+
+                    repaint(); // Draw everything again when thread is executed
+                    hud.getElapsedTime(); // Each time thread executed, we get the elapsed time
 
                     for (int i = 0; i < celllist.size(); i++) {
-                        if (playerCell.isCollision(playerCell, celllist.get(i))) { //Removes the eaten cell, increases the score
+                        if (playerCell.isCollision(playerCell, celllist.get(i))) { // Removes eaten cell, increases score
                             // Save eaten cell radius BEFORE removing it from the list
                             int eatenRad = celllist.get(i).cellRad;
                             hud.score++;
                             if (hud.score > highscore) highscore = hud.score;
                             celllist.remove(i);
+                            Sound.playEatSound(); // Soothing bloop feedback on eat
                             if (celllist.size() < 20) {
                                 coloredCell = new Cell(
-                                        rndcellrad + random.nextInt(MainClass.WORLD_WIDTH - 2 * rndcellrad),
-                                        rndcellrad + random.nextInt(MainClass.WORLD_HEIGHT - 2 * rndcellrad - 25),
-                                        rndcellrad);
+                                        SPAWN_BORDER + random.nextInt(MainClass.WORLD_WIDTH  - 2 * SPAWN_BORDER),
+                                        SPAWN_BORDER + random.nextInt(MainClass.WORLD_HEIGHT - 2 * SPAWN_BORDER),
+                                        randomEnemyRadius());
                                 coloredCell.cellColor = colors[random.nextInt(colors.length)];
                                 celllist.add(coloredCell);
                             }
-                            //Increases the size of the player cell based on volume eaten
+                            // Increases the size of the player cell based on volume eaten
                             int newRad = (int) Math.pow(Math.pow(playerCell.cellRad, 3) + Math.pow(eatenRad, 3), 1.0 / 3);
                             if (newRad <= playerCell.cellRad) newRad = playerCell.cellRad + 1;
                             playerCell.cellRad = newRad;
                         }
                     }
 
-                    //Surprise here ^^
+                    // Surprise here ^^
                     if (playerCell.cellRad > 400 && mus == 0) {
                         hud.resetTime();
                         mus++;
                         music.playSound();
                     }
                     try {
-                        Thread.sleep(10); //Value inside it changes the speed of the game, it runs in 10 ms
+                        Thread.sleep(10); // 10 ms tick (~100 FPS)
                     } catch (InterruptedException e) {
                         e.printStackTrace();
                     }
@@ -170,24 +197,34 @@ public class GamePanel extends JPanel implements KeyListener {
 
         Graphics2D g2d = (Graphics2D) g;
 
+        int camX = (int) cameraX;
+        int camY = (int) cameraY;
+
         // Apply camera transform: shift coordinate system so world is drawn relative to camera
-        g2d.translate(-cameraX, -cameraY);
+        g2d.translate(-camX, -camY);
 
         // Draw world-space elements (background, cells, player name)
-        background.drawBackground(g2d, cameraX, cameraY);
+        background.drawBackground(g2d, camX, camY);
 
-        for (int i = 0; i < celllist.size(); i++) {
-            celllist.get(i).drawCell(g2d, rndcellrad);
+        // Draw enemy cells with smooth grow-in animation
+        for (Cell c : celllist) {
+            float alpha = c.spawnAlpha;
+            int drawRad = (int)(c.cellRad * alpha);
+            if (drawRad < 1) continue;
+            Composite orig = g2d.getComposite();
+            g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha));
+            c.drawCell(g2d, drawRad);
+            g2d.setComposite(orig);
         }
 
         playerCell.drawCell(g2d, playerCell.cellRad);
 
         g2d.setColor(Color.WHITE);
         g2d.setFont(new Font("", Font.PLAIN, 12));
-        g2d.drawString("Kamil", playerCell.getX() + playerCell.cellRad - cellrad, playerCell.getY() + playerCell.cellRad); //Name inside the cell
+        g2d.drawString("Kamil", playerCell.getX() + playerCell.cellRad - cellrad, playerCell.getY() + playerCell.cellRad); // Name inside the cell
 
         // Restore camera transform for screen-space HUD
-        g2d.translate(cameraX, cameraY);
+        g2d.translate(camX, camY);
 
         g2d.setColor(Color.BLUE);
         g2d.setFont(new Font("", Font.PLAIN, 12));
@@ -217,8 +254,8 @@ public class GamePanel extends JPanel implements KeyListener {
         }
     }
 
-    //Below part is for using the keyboard as controller
-    //W A S D and Arrow keys
+    // Below part is for using the keyboard as controller
+    // W A S D and Arrow keys
     @Override
     public void keyTyped(KeyEvent e) {
     }
