@@ -47,24 +47,24 @@ public class GamePanel extends JPanel implements KeyListener {
 
     public Cell playerCell, randomCell, coloredCell;
 
-    public int cellrad = 18;                            // Radius of the player cell initially
+    public double cellrad = 2;                           // Radius of the player cell initially
 
     // Food cell categories (Small / Medium / Large)
     // These values are fixed and cannot be changed in-game.
-    private static final int SMALL_RAD        = 1;     // Small: radius 1
-    private static final int MEDIUM_RAD_MIN   = 2;     // Medium: radius 2–5
-    private static final int MEDIUM_RAD_MAX   = 5;
-    private static final int LARGE_RAD_MIN    = 5;     // Large: radius 5–10
-    private static final int LARGE_RAD_MAX    = 10;
-    private static final double SMALL_CHANCE  = 0.90;  // 90% small
-    private static final double MEDIUM_CHANCE = 0.07;  // 7% medium
+    private static final double SMALL_RAD        = 1;     // Small: radius 1
+    private static final double MEDIUM_RAD_MIN   = 2;     // Medium: radius 2–5
+    private static final double MEDIUM_RAD_MAX   = 5;
+    private static final double LARGE_RAD_MIN    = 5;     // Large: radius 5–10
+    private static final double LARGE_RAD_MAX    = 10;
+    private static final double SMALL_CHANCE     = 0.90;  // 90% small
+    private static final double MEDIUM_CHANCE    = 0.07;  // 7% medium
     // Large = remaining 3%
-    private static final int SPAWN_BORDER     = 40;    // spawn boundary buffer
+    private static final int SPAWN_BORDER        = 40;    // spawn boundary buffer
 
     // Dynamic speed constants
-    private static final int BASE_SPEED       = 7;     // speed at initial radius
-    private static final int INITIAL_RAD      = 18;    // player starting radius
-    private static final int MIN_SPEED        = 3;     // speed never drops below this
+    private static final double BASE_SPEED       = 7;     // speed at initial radius
+    private static final double INITIAL_RAD      = 2;     // player starting radius
+    private static final double MIN_SPEED        = 3;     // speed never drops below this
 
     private Sound music = new Sound("coolMusic.wav", 1); // Easter egg music
 
@@ -91,10 +91,10 @@ public class GamePanel extends JPanel implements KeyListener {
 
     /**
      * Cell density: number of food cells per million world-area pixels.
-     * Default: 1000 cells per 1000x1000 area = 1000 cells per million px.
-     * This value is fixed and cannot be changed in-game.
+     * Default: 200 cells per 1000x1000 area = 200 cells per million px.
+     * Configurable via Options and Dev Log.
      */
-    public static final double cellDensity = 1000.0;
+    public static double cellDensity = 200.0;
 
     /** Returns the maximum number of food cells based on current world size and density */
     public int getMaxCells() {
@@ -157,14 +157,14 @@ public class GamePanel extends JPanel implements KeyListener {
      * Returns a random food cell radius based on the three fixed categories:
      * Small (90%, radius 1), Medium (7%, radius 2–5), Large (3%, radius 5–10).
      */
-    private int randomFoodRadius() {
+    private double randomFoodRadius() {
         double roll = random.nextDouble();
         if (roll < SMALL_CHANCE) {
             return SMALL_RAD;
         } else if (roll < SMALL_CHANCE + MEDIUM_CHANCE) {
-            return MEDIUM_RAD_MIN + random.nextInt(MEDIUM_RAD_MAX - MEDIUM_RAD_MIN + 1);
+            return MEDIUM_RAD_MIN + random.nextDouble() * (MEDIUM_RAD_MAX - MEDIUM_RAD_MIN);
         } else {
-            return LARGE_RAD_MIN + random.nextInt(LARGE_RAD_MAX - LARGE_RAD_MIN + 1);
+            return LARGE_RAD_MIN + random.nextDouble() * (LARGE_RAD_MAX - LARGE_RAD_MIN);
         }
     }
 
@@ -179,7 +179,7 @@ public class GamePanel extends JPanel implements KeyListener {
         for (int attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
             int cx = SPAWN_BORDER + random.nextInt(MainClass.WORLD_WIDTH  - 2 * SPAWN_BORDER);
             int cy = SPAWN_BORDER + random.nextInt(MainClass.WORLD_HEIGHT - 2 * SPAWN_BORDER);
-            int r  = randomFoodRadius();
+            double r = randomFoodRadius();
 
             // Check clearance against the player cell
             double dx = cx - (playerCell.x + playerCell.cellRad);
@@ -266,9 +266,11 @@ public class GamePanel extends JPanel implements KeyListener {
                 while (true) {
                     if (!paused && !gameOver) {
                         // Dynamic speed: faster at small size, slower as player grows, min 3
+                        // Speed scales with area ratio: speed = BASE_SPEED * (initialArea / currentArea)
+                        // = BASE_SPEED * (INITIAL_RAD / cellRad)^2
                         if (!devSpeedOverride) {
-                            int dynSpeed = Math.max(MIN_SPEED,
-                                (int)(BASE_SPEED * (double) INITIAL_RAD / playerCell.cellRad));
+                            double ratio = INITIAL_RAD / playerCell.cellRad;
+                            double dynSpeed = Math.max(MIN_SPEED, BASE_SPEED * ratio * ratio);
                             playerCell.speedX = dynSpeed;
                             playerCell.speedY = dynSpeed;
                         }
@@ -304,15 +306,13 @@ public class GamePanel extends JPanel implements KeyListener {
                         for (int i = 0; i < celllist.size(); i++) {
                             if (playerCell.isCollision(playerCell, celllist.get(i))) { // Removes eaten cell, increases score
                                 // Save eaten cell radius BEFORE removing it from the list
-                                int eatenRad = celllist.get(i).cellRad;
-                                hud.score += eatenRad;
+                                double eatenRad = celllist.get(i).cellRad;
+                                hud.score += (int) Math.ceil(eatenRad);
                                 if (hud.score > highscore) highscore = hud.score;
                                 celllist.remove(i);
                                 Sound.playEatSound(); // Soothing bloop feedback on eat
-                                // Increases the size of the player cell based on volume eaten
-                                int newRad = (int) Math.pow(Math.pow(playerCell.cellRad, 3) + Math.pow(eatenRad, 3), 1.0 / 3);
-                                // Ensure player always grows by at least the eaten cell's radius
-                                if (newRad <= playerCell.cellRad) newRad = playerCell.cellRad + eatenRad;
+                                // Area-based growth: r3 = sqrt(r1^2 + r2^2)
+                                double newRad = Math.sqrt(playerCell.cellRad * playerCell.cellRad + eatenRad * eatenRad);
                                 playerCell.cellRad = newRad;
                             }
                         }
@@ -320,13 +320,12 @@ public class GamePanel extends JPanel implements KeyListener {
                         // Player eats NPC cells (player bigger than NPC)
                         for (NPC npc : npcList) {
                             if (npc.alive && playerCell.isCollision(playerCell, npc.cell)) {
-                                int eatenRad = npc.cell.cellRad;
-                                hud.score += eatenRad;
+                                double eatenRad = npc.cell.cellRad;
+                                hud.score += (int) Math.ceil(eatenRad);
                                 if (hud.score > highscore) highscore = hud.score;
                                 npc.alive = false;
                                 Sound.playEatSound();
-                                int newRad = (int) Math.pow(Math.pow(playerCell.cellRad, 3) + Math.pow(eatenRad, 3), 1.0 / 3);
-                                if (newRad <= playerCell.cellRad) newRad = playerCell.cellRad + eatenRad;
+                                double newRad = Math.sqrt(playerCell.cellRad * playerCell.cellRad + eatenRad * eatenRad);
                                 playerCell.cellRad = newRad;
                             }
                         }
@@ -338,7 +337,7 @@ public class GamePanel extends JPanel implements KeyListener {
                                 if (i >= celllist.size()) break;
                                 Cell food = celllist.get(i);
                                 if (npc.cell.isCollision(npc.cell, food)) {
-                                    int eatenRad = food.cellRad;
+                                    double eatenRad = food.cellRad;
                                     celllist.remove(i);
                                     npc.grow(eatenRad);
                                     i--;
@@ -352,7 +351,7 @@ public class GamePanel extends JPanel implements KeyListener {
                             for (NPC prey : npcList) {
                                 if (!prey.alive || predator == prey) continue;
                                 if (predator.cell.isCollision(predator.cell, prey.cell)) {
-                                    int eatenRad = prey.cell.cellRad;
+                                    double eatenRad = prey.cell.cellRad;
                                     prey.alive = false;
                                     predator.grow(eatenRad);
                                 }
@@ -364,7 +363,7 @@ public class GamePanel extends JPanel implements KeyListener {
                             if (!npc.alive) continue;
                             if (npc.cell.isCollision(npc.cell, playerCell)) {
                                 // Player is eaten — game over
-                                npc.grow(playerCell.cellRad);
+                                npc.grow((double) playerCell.cellRad);
                                 triggerGameOver();
                                 break;
                             }
@@ -478,7 +477,7 @@ public class GamePanel extends JPanel implements KeyListener {
         // Draw enemy cells with smooth grow-in animation
         for (Cell c : celllist) {
             float alpha = c.spawnAlpha;
-            int drawRad = (int)(c.cellRad * alpha);
+            int drawRad = Math.max(1, (int) Math.round(c.cellRad * alpha));
             if (drawRad < 1) continue;
             Composite orig = g2d.getComposite();
             g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha));
@@ -489,33 +488,35 @@ public class GamePanel extends JPanel implements KeyListener {
         // Draw NPC cells with names
         for (NPC npc : npcList) {
             if (!npc.alive) continue;
-            npc.cell.drawCell(g2d, npc.cell.cellRad);
+            int npcDrawRad = (int) Math.round(npc.cell.cellRad);
+            npc.cell.drawCell(g2d, npcDrawRad);
             // Draw NPC name centered inside its cell
-            int fontSize = Math.max(8, Math.min(npc.cell.cellRad / 2, 24));
+            int fontSize = Math.max(8, Math.min(npcDrawRad / 2, 24));
             Font nameFont = new Font("Arial", Font.BOLD, fontSize);
             g2d.setFont(nameFont);
             FontMetrics fm = g2d.getFontMetrics();
             int nameW = fm.stringWidth(npc.name);
             int nameH = fm.getAscent();
-            int nameX = npc.cell.x + npc.cell.cellRad - nameW / 2;
-            int nameY = npc.cell.y + npc.cell.cellRad + nameH / 2 - 2;
+            int nameX = (int) Math.round(npc.cell.x + npc.cell.cellRad) - nameW / 2;
+            int nameY = (int) Math.round(npc.cell.y + npc.cell.cellRad) + nameH / 2 - 2;
             g2d.setColor(Color.WHITE);
             g2d.drawString(npc.name, nameX, nameY);
         }
 
         // Draw player cell and name (always visible unless game over from being eaten)
         if (!gameOver || mus > 0) {
-            playerCell.drawCell(g2d, playerCell.cellRad);
+            int playerDrawRad = (int) Math.round(playerCell.cellRad);
+            playerCell.drawCell(g2d, playerDrawRad);
 
             // Draw player name centered and font-size fitted inside the player cell
-            int fontSize = Math.max(8, Math.min(playerCell.cellRad / 2, 24));
+            int fontSize = Math.max(8, Math.min(playerDrawRad / 2, 24));
             Font nameFont = new Font("Arial", Font.BOLD, fontSize);
             g2d.setFont(nameFont);
             FontMetrics fm = g2d.getFontMetrics();
             int nameW = fm.stringWidth(playerName);
             int nameH = fm.getAscent();
-            int nameX = playerCell.x + playerCell.cellRad - nameW / 2;
-            int nameY = playerCell.y + playerCell.cellRad + nameH / 2 - 2;
+            int nameX = (int) Math.round(playerCell.x + playerCell.cellRad) - nameW / 2;
+            int nameY = (int) Math.round(playerCell.y + playerCell.cellRad) + nameH / 2 - 2;
             g2d.setColor(Color.WHITE);
             g2d.drawString(playerName, nameX, nameY);
         }

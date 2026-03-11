@@ -26,7 +26,7 @@ public class DevLogDialog extends JDialog {
     private JTextField tfPosX;
     private JTextField tfPosY;
     private JLabel     lblEnemyCount;
-    private JLabel     lblCellDensity;
+    private JTextField tfCellDensity;
     private JLabel     lblMaxCells;
 
     /**
@@ -170,13 +170,11 @@ public class DevLogDialog extends JDialog {
         content.add(lblEnemyCount, fc);
         row++;
 
-        // ---- Cell Density (read-only — fixed at 1000 cells/M px) ----
+        // ---- Cell Density (editable) ----
         lc.gridy = row; fc.gridy = row;
         content.add(makeLabel("Cell Density (cells/M px):", labelFont, labelColor), lc);
-        lblCellDensity = new JLabel();
-        lblCellDensity.setForeground(new Color(120, 255, 120));
-        lblCellDensity.setFont(fieldFont);
-        content.add(lblCellDensity, fc);
+        tfCellDensity = makeField(fieldFont, fieldBg, fieldFg);
+        content.add(tfCellDensity, fc);
         row++;
 
         // ---- Max cells (read-only, computed from density) ----
@@ -214,16 +212,16 @@ public class DevLogDialog extends JDialog {
     private void populateFields() {
         Cell p = gamePanel.playerCell;
         tfName.setText(GamePanel.playerName);
-        tfRadius.setText(String.valueOf(p.cellRad));
+        tfRadius.setText(String.format("%.2f", p.cellRad));
         tfScore.setText(String.valueOf(gamePanel.hud.score));
-        tfSpeedX.setText(String.valueOf(p.speedX));
-        tfSpeedY.setText(String.valueOf(p.speedY));
+        tfSpeedX.setText(String.format("%.2f", p.speedX));
+        tfSpeedY.setText(String.format("%.2f", p.speedY));
         cbSpeedOverride.setSelected(gamePanel.devSpeedOverride);
         // x/y stored as top-left; report the center for clarity
-        tfPosX.setText(String.valueOf(p.x + p.cellRad));
-        tfPosY.setText(String.valueOf(p.y + p.cellRad));
+        tfPosX.setText(String.format("%.0f", p.x + p.cellRad));
+        tfPosY.setText(String.format("%.0f", p.y + p.cellRad));
         lblEnemyCount.setText(String.valueOf(gamePanel.celllist.size()));
-        lblCellDensity.setText(String.format("%.0f", GamePanel.cellDensity));
+        tfCellDensity.setText(String.format("%.2f", GamePanel.cellDensity));
         lblMaxCells.setText(String.valueOf(gamePanel.getMaxCells()));
     }
 
@@ -240,7 +238,7 @@ public class DevLogDialog extends JDialog {
 
         // Player radius
         try {
-            int r = Integer.parseInt(tfRadius.getText().trim());
+            double r = Double.parseDouble(tfRadius.getText().trim());
             if (r > 0) p.cellRad = r;
         } catch (NumberFormatException ignored) {}
 
@@ -256,20 +254,26 @@ public class DevLogDialog extends JDialog {
         // Speed override
         gamePanel.devSpeedOverride = cbSpeedOverride.isSelected();
         try {
-            int sx = Integer.parseInt(tfSpeedX.getText().trim());
-            int sy = Integer.parseInt(tfSpeedY.getText().trim());
+            double sx = Double.parseDouble(tfSpeedX.getText().trim());
+            double sy = Double.parseDouble(tfSpeedY.getText().trim());
             if (sx > 0) p.speedX = sx;
             if (sy > 0) p.speedY = sy;
         } catch (NumberFormatException ignored) {}
 
         // Position (user enters center; store as top-left)
         try {
-            int cx = Integer.parseInt(tfPosX.getText().trim());
-            int cy = Integer.parseInt(tfPosY.getText().trim());
+            double cx = Double.parseDouble(tfPosX.getText().trim());
+            double cy = Double.parseDouble(tfPosY.getText().trim());
             if (cx > 0 && cy > 0) {
                 p.x = cx - p.cellRad;
                 p.y = cy - p.cellRad;
             }
+        } catch (NumberFormatException ignored) {}
+
+        // Cell density
+        try {
+            double d = Double.parseDouble(tfCellDensity.getText().trim());
+            if (d > 0) GamePanel.cellDensity = d;
         } catch (NumberFormatException ignored) {}
 
         gamePanel.paused = false;
