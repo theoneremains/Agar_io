@@ -82,6 +82,19 @@ public class GamePanel extends JPanel implements KeyListener {
     /** Number of NPC players in this game session */
     private int npcCount;
 
+    /**
+     * Cell density: number of food cells per million world-area pixels.
+     * Default based on original settings: 30 cells in 3840*2160 = ~3.62 cells per million px.
+     * Configurable via settings and dev log.
+     */
+    public static double cellDensity = 30.0 / ((3840.0 * 2160.0) / 1_000_000.0);
+
+    /** Returns the maximum number of food cells based on current world size and density */
+    public int getMaxCells() {
+        double worldArea = (double) MainClass.WORLD_WIDTH * MainClass.WORLD_HEIGHT / 1_000_000.0;
+        return Math.max(5, (int) Math.round(cellDensity * worldArea));
+    }
+
     MainClass mainClass;
 
     // Creates the panel and runs the threads
@@ -180,7 +193,7 @@ public class GamePanel extends JPanel implements KeyListener {
             @Override
             public void run() {
                 while (true) {
-                    if (!gameOver && celllist.size() < 30) {
+                    if (!gameOver && celllist.size() < getMaxCells()) {
                         coloredCell = generateNonOverlappingCell();
                         coloredCell.cellColor = colors[random.nextInt(colors.length)];
                         // spawnAlpha starts at 0 — grow-in animation handled in runGameThread
@@ -221,9 +234,9 @@ public class GamePanel extends JPanel implements KeyListener {
                             if (c.spawnAlpha < 1f) c.spawnAlpha = Math.min(1f, c.spawnAlpha + 0.05f);
                         }
 
-                        // Update NPC positions and AI
+                        // Update NPC positions and AI (with navigation helper)
                         for (NPC npc : npcList) {
-                            if (npc.alive) npc.update();
+                            if (npc.alive) npc.update(playerCell, npcList, celllist);
                         }
 
                         // Smooth camera lerp — follows player center
@@ -250,7 +263,7 @@ public class GamePanel extends JPanel implements KeyListener {
                                 if (hud.score > highscore) highscore = hud.score;
                                 celllist.remove(i);
                                 Sound.playEatSound(); // Soothing bloop feedback on eat
-                                if (celllist.size() < 20) {
+                                if (celllist.size() < getMaxCells() * 2 / 3) {
                                     coloredCell = generateNonOverlappingCell();
                                     coloredCell.cellColor = colors[random.nextInt(colors.length)];
                                     celllist.add(coloredCell);

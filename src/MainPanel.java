@@ -94,7 +94,9 @@ public class MainPanel extends JPanel
     protected void paintComponent(Graphics g)
     {
         super.paintComponent(g);
-        g.drawImage(backgroundImg, 0, 0, null);
+        if (backgroundImg != null) {
+            g.drawImage(backgroundImg, 0, 0, MainClass.SCREEN_WIDTH, MainClass.SCREEN_HEIGHT, null);
+        }
     }
 
     @Override

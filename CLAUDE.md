@@ -10,7 +10,7 @@ A Java Swing Agar.io clone developed as an AIU Hackathon group project.
 
 **Game concept:** The player controls a circular cell. Eating smaller cells increases the player's size and score. The goal is to achieve the highest score.
 
-**Current status:** Functional game with NPC opponents, smooth camera tracking, highscore, sound toggle, player color selection, toroidal world wrapping, random enemy sizes, smooth cell spawn animation, eat sound, animated gradient background, anti-aliased rendering, player name display, dynamic speed (min 3), no-overlap spawn, volume-based growth, live scoreboard, game over screen with stats, and an in-game developer log.
+**Current status:** Functional game with intelligent NPC opponents (navigation AI — flee bigger, chase smaller), smooth camera tracking, highscore, sound toggle, player color selection, fullscreen mode (default), configurable world dimensions, cell density parameter, toroidal world wrapping, random enemy sizes, smooth cell spawn animation, eat sound, animated gradient background, anti-aliased rendering, player name display, dynamic speed (min 3), no-overlap spawn, volume-based growth, live scoreboard, game over screen with stats, and an in-game developer log.
 
 ---
 
@@ -110,11 +110,13 @@ Note: Assets (`.png`, `.wav`) live in `src/` alongside Java files. The build scr
   ```java
   public static int SCREEN_WIDTH  = 1280;
   public static int SCREEN_HEIGHT = 720;
-  public static int WORLD_WIDTH   = 3840;   // playable world width
-  public static int WORLD_HEIGHT  = 2160;   // playable world height
+  public static int WORLD_WIDTH   = 3840;   // playable world width (configurable in settings)
+  public static int WORLD_HEIGHT  = 2160;   // playable world height (configurable in settings)
   public static int BUTTON_WIDTH  = 200;
   public static int BUTTON_HEIGHT = 50;
+  public static boolean fullscreen = true;  // fullscreen by default
   ```
+- **Fullscreen mode:** defaults to `true`; `applyFullscreen()` sets `SCREEN_WIDTH`/`SCREEN_HEIGHT` to display dimensions and removes window decorations; `applyWindowed()` restores 1280×720 windowed mode; `toggleFullscreen()` switches between modes
 - Entry point: `main()` calls `SwingUtilities.invokeLater(MainClass::new)`
 - Holds references to all three panels: `mainPanel`, `optionsPanel`, `gamePanel`
 
@@ -124,7 +126,8 @@ Note: Assets (`.png`, `.wav`) live in `src/` alongside Java files. The build scr
 - **Two daemon game threads:**
   - `cellThread()` — spawns enemy food cells up to max 30 across the world, random 0–12 second intervals; each cell starts with `spawnAlpha = 0f` for grow-in animation; stops spawning when `gameOver`
   - `runGameThread()` — main loop at 10ms tick (~100 FPS); updates player (toroidal wrap), NPC AI, advances `spawnAlpha`, camera lerp, collision (player↔food, player↔NPC, NPC↔food, NPC↔NPC, NPC↔player), score, eat sound; skips all logic when `paused == true` or `gameOver == true`
-- **NPC system:** `npcList` is a `CopyOnWriteArrayList<NPC>`; NPCs move randomly, eat food cells and smaller NPCs, can eat the player if bigger; each NPC tracks its own score
+- **Cell density:** `static double cellDensity` — cells per million world-area pixels; default ~3.62 (30 cells in 3840×2160); `getMaxCells()` computes max food cells from density × world area; configurable in Options and Dev Log
+- **NPC system:** `npcList` is a `CopyOnWriteArrayList<NPC>`; NPCs use navigation AI (flee bigger, chase smaller), eat food cells and smaller NPCs, can eat the player if bigger; each NPC tracks its own score
 - **Score:** increased by the eaten cell's radius (not +1); stored in `hud.score`; `highscore` updated whenever `hud.score > highscore`
 - **Scoreboard:** `getScoreboard()` returns a sorted list of player + all NPCs ranked by score; `drawScoreboard()` renders it in the top-right corner with the player's entry highlighted in yellow; dead NPCs shown greyed out with `[dead]` tag
 - **Camera:** `cameraX`/`cameraY` are `double` fields updated with 15% lerp each tick; wrap-snap (instant jump) when player crosses a world boundary; cast to `int` for `g2d.translate()`
@@ -152,9 +155,13 @@ Note: Assets (`.png`, `.wav`) live in `src/` alongside Java files. The build scr
   - Center-to-center distance formula
 
 ### `NPC.java`
-- Represents an AI-controlled cell with a name, score, and random movement
+- Represents an AI-controlled cell with a name, score, and intelligent navigation
 - **Fields:** `cell` (Cell entity), `name` (String), `score` (int), `alive` (boolean)
-- **Movement AI:** randomizes direction flags every 30–100 ticks; moves via `cell.updateCellPos()`
+- **Navigation AI:** `update(playerCell, npcList, foodList)` calls `navigate()` which scans all nearby entities within `VISION_RANGE = 400` pixels:
+  - **Flee** from cells bigger than this NPC (player, other NPCs) — stronger force when closer (weight 3.0)
+  - **Chase** cells smaller than this NPC — player (weight 2.0), other NPCs (weight 1.5), food cells (weight 1.0)
+  - Steering vector is computed from all visible threats/prey and converted to direction flags
+  - Falls back to random movement (direction changes every 30–100 ticks) when nothing is nearby
 - **Speed:** uses same dynamic formula as player (`max(3, 7 × 18 / radius)`) via `updateSpeed()`
 - **Growth:** `grow(eatenRad)` applies volume-based growth with fallback, increments `score` by `eatenRad`
 - **Name pool:** 20 pre-defined names (Blob, Chomper, Nibbler, etc.); duplicates avoided via `usedNames` set
@@ -182,11 +189,13 @@ Note: Assets (`.png`, `.wav`) live in `src/` alongside Java files. The build scr
 ### `DevLogDialog.java`
 - Non-modal `JDialog` opened/closed by `GamePanel.toggleDevLog()` via Ctrl+I / Meta+I
 - Sets `gamePanel.paused = true` on open; `false` on close
-- **Editable fields:** Player Name, Player Radius, Score, Speed X, Speed Y, Position X, Position Y
+- **Editable fields:** Player Name, Player Radius, Score, Speed X, Speed Y, Position X, Position Y, Cell Density
 - **Manual Speed Override checkbox:** when checked, sets `gamePanel.devSpeedOverride = true`, preventing automatic speed recalculation each tick
 - **Enemy cell count** displayed as a read-only label
+- **Cell Density (cells/M px):** editable field for `GamePanel.cellDensity`; changes take effect immediately on apply
+- **Max Food Cells:** read-only label computed from density × world area via `gamePanel.getMaxCells()`
 - **Refresh button** re-reads current game state into the fields
-- **Apply & Resume button** (and X window close) validates input, writes values to `gamePanel.playerCell` / `GamePanel.playerName` / `gamePanel.hud.score`, then unpauses the game
+- **Apply & Resume button** (and X window close) validates input, writes values to `gamePanel.playerCell` / `GamePanel.playerName` / `gamePanel.hud.score` / `GamePanel.cellDensity`, then unpauses the game
 - Ctrl+I / Meta+I keyboard shortcut (via `getRootPane().getInputMap`) also closes the dialog
 
 ### `Sound.java`
@@ -201,8 +210,11 @@ Note: Assets (`.png`, `.wav`) live in `src/` alongside Java files. The build scr
 ### `OptionsPanel.java`
 - **SOUND button:** toggles `Sound.soundEnabled`; label shows "SOUND: ON" / "SOUND: OFF"
 - **COLOR button:** cycles `GamePanel.playerColorIndex` through `GamePanel.colors[]`; shows selected color in `colorPreview` panel; change applies to the next game started
+- **FULLSCREEN button:** toggles `MainClass.fullscreen` via `mainClass.toggleFullscreen()`; recreates the options panel to adjust layout for new screen dimensions
+- **World Size fields:** two text fields for width/height (minimum 800×600) with APPLY WORLD button; updates `MainClass.WORLD_WIDTH`/`WORLD_HEIGHT`; applies to next game
+- **Cell Density field:** text field for `GamePanel.cellDensity` (cells per million world-area pixels) with APPLY DENSITY button; shows computed max cells in confirmation
 - **BACK button:** returns to main menu
-- `paintComponent` draws background image; `paint` calls `super.paint(g)` then overlays title and highscore
+- `paintComponent` draws background image scaled to screen; `paint` calls `super.paint(g)` then overlays title and highscore
 
 ---
 
@@ -314,6 +326,10 @@ public static Color[] colors = {BLACK, BLUE, CYAN, DARK_GRAY, GRAY, GREEN, LIGHT
 13. **Score increases by eaten cell's radius** — `hud.score += eatenRad`, not `hud.score++`. NPCs also track score the same way.
 14. **NPC count minimum is 3** — enforced in `MainPanel` via `Math.max(3, ...)` on user input.
 15. **NPC names must be unique** — use a `Set<String>` of used names when spawning NPCs to avoid duplicates.
+16. **NPC `update()` requires navigation context** — always call `npc.update(playerCell, npcList, celllist)` with player, NPC list, and food list so navigation AI can detect threats and prey.
+17. **Cell density governs max food cells** — use `getMaxCells()` (density × world area) instead of hardcoded limits; default density is ~3.62 cells/M px (30 cells in 3840×2160).
+18. **Fullscreen is the default** — `MainClass.fullscreen = true`; screen dimensions are set to display size on startup; toggling recalculates `SCREEN_WIDTH`/`SCREEN_HEIGHT`.
+19. **World dimensions are configurable** — minimum 800×600; changes apply to the next game session.
 
 ---
 

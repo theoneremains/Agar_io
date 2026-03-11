@@ -1,11 +1,14 @@
 
 import java.awt.*;
+import java.util.List;
 import java.util.Random;
+import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
- * NPC class : Represents an AI-controlled cell that moves randomly around the world,
- * eats smaller food cells and other NPCs, and tracks its own score.
- * NPCs have random names and behave like autonomous players.
+ * NPC class : Represents an AI-controlled cell that navigates the world intelligently,
+ * fleeing from cells bigger than it and chasing cells smaller than it (including the player).
+ * Eats smaller food cells and other NPCs, and tracks its own score.
+ * NPCs have random names and behave like autonomous players with survival instincts.
  * @author Kamil Yunus Özkaya
  */
 public class NPC {
@@ -21,10 +24,10 @@ public class NPC {
     /** Whether this NPC is still alive */
     public boolean alive = true;
 
-    // Movement direction flags (randomized periodically)
+    // Movement direction flags (set by navigation AI)
     private boolean right, left, up, down;
 
-    // Ticks until next direction change
+    // Ticks until next direction change (used only for random fallback)
     private int directionTimer = 0;
 
     private static final Random rng = new Random();
@@ -33,6 +36,10 @@ public class NPC {
     private static final int BASE_SPEED  = 7;
     private static final int INITIAL_RAD = 18;
     private static final int MIN_SPEED   = 3;
+
+    // Navigation constants
+    /** How far the NPC can "see" threats and prey */
+    private static final int VISION_RANGE = 400;
 
     /** Pool of random NPC names */
     private static final String[] NPC_NAMES = {
@@ -76,7 +83,7 @@ public class NPC {
         cell.speedY = dynSpeed;
     }
 
-    /** Randomizes movement direction */
+    /** Randomizes movement direction (fallback when no threats or prey nearby) */
     private void randomizeDirection() {
         right = rng.nextBoolean();
         left  = !right && rng.nextBoolean();
@@ -87,18 +94,125 @@ public class NPC {
 
     /**
      * Updates NPC position and movement AI each tick.
-     * Periodically changes direction randomly.
+     * Uses navigation helper to flee from bigger cells and chase smaller ones.
+     * Falls back to random movement when nothing interesting is nearby.
+     * @param playerCell the player's cell (for threat/prey detection)
+     * @param npcList all NPCs in the game (for threat/prey detection among NPCs)
+     * @param foodList all food cells in the game (for prey detection)
      */
-    public void update() {
+    public void update(Cell playerCell, CopyOnWriteArrayList<NPC> npcList, CopyOnWriteArrayList<Cell> foodList) {
         if (!alive) return;
 
-        directionTimer--;
-        if (directionTimer <= 0) {
-            randomizeDirection();
+        updateSpeed();
+
+        // Navigation AI: compute steering direction based on threats and prey
+        boolean navigated = navigate(playerCell, npcList, foodList);
+
+        if (!navigated) {
+            // No threats or prey nearby — fall back to random movement
+            directionTimer--;
+            if (directionTimer <= 0) {
+                randomizeDirection();
+            }
         }
 
-        updateSpeed();
         cell.updateCellPos(right, left, up, down);
+    }
+
+    /**
+     * Navigation helper: scans nearby cells and steers the NPC.
+     * - Flee from cells bigger than this NPC (weighted by proximity and size difference)
+     * - Chase cells smaller than this NPC (food cells, smaller NPCs, and smaller player)
+     * @return true if navigation found something to react to, false for random fallback
+     */
+    private boolean navigate(Cell playerCell, CopyOnWriteArrayList<NPC> npcList, CopyOnWriteArrayList<Cell> foodList) {
+        int myCX = cell.x + cell.cellRad;
+        int myCY = cell.y + cell.cellRad;
+        int myRad = cell.cellRad;
+
+        // Accumulated steering vector
+        double steerX = 0;
+        double steerY = 0;
+        boolean hasInput = false;
+
+        // Check player as potential threat or prey
+        {
+            int pCX = playerCell.x + playerCell.cellRad;
+            int pCY = playerCell.y + playerCell.cellRad;
+            double dx = pCX - myCX;
+            double dy = pCY - myCY;
+            double dist = Math.sqrt(dx * dx + dy * dy);
+
+            if (dist > 0 && dist < VISION_RANGE) {
+                int pRad = playerCell.cellRad;
+                if (pRad > myRad + 4) {
+                    // Player is bigger — FLEE (stronger force when closer)
+                    double weight = 3.0 * (VISION_RANGE - dist) / VISION_RANGE;
+                    steerX -= weight * (dx / dist);
+                    steerY -= weight * (dy / dist);
+                    hasInput = true;
+                } else if (myRad > pRad + 4) {
+                    // Player is smaller — CHASE
+                    double weight = 2.0 * (VISION_RANGE - dist) / VISION_RANGE;
+                    steerX += weight * (dx / dist);
+                    steerY += weight * (dy / dist);
+                    hasInput = true;
+                }
+            }
+        }
+
+        // Check other NPCs as threats or prey
+        for (NPC other : npcList) {
+            if (other == this || !other.alive) continue;
+            int oCX = other.cell.x + other.cell.cellRad;
+            int oCY = other.cell.y + other.cell.cellRad;
+            double dx = oCX - myCX;
+            double dy = oCY - myCY;
+            double dist = Math.sqrt(dx * dx + dy * dy);
+
+            if (dist > 0 && dist < VISION_RANGE) {
+                int oRad = other.cell.cellRad;
+                if (oRad > myRad + 4) {
+                    // Other NPC is bigger — FLEE
+                    double weight = 3.0 * (VISION_RANGE - dist) / VISION_RANGE;
+                    steerX -= weight * (dx / dist);
+                    steerY -= weight * (dy / dist);
+                    hasInput = true;
+                } else if (myRad > oRad + 4) {
+                    // Other NPC is smaller — CHASE
+                    double weight = 1.5 * (VISION_RANGE - dist) / VISION_RANGE;
+                    steerX += weight * (dx / dist);
+                    steerY += weight * (dy / dist);
+                    hasInput = true;
+                }
+            }
+        }
+
+        // Check food cells as prey (always smaller, low priority chase)
+        for (Cell food : foodList) {
+            int fCX = food.x + food.cellRad;
+            int fCY = food.y + food.cellRad;
+            double dx = fCX - myCX;
+            double dy = fCY - myCY;
+            double dist = Math.sqrt(dx * dx + dy * dy);
+
+            if (dist > 0 && dist < VISION_RANGE && myRad > food.cellRad + 4) {
+                double weight = 1.0 * (VISION_RANGE - dist) / VISION_RANGE;
+                steerX += weight * (dx / dist);
+                steerY += weight * (dy / dist);
+                hasInput = true;
+            }
+        }
+
+        if (!hasInput) return false;
+
+        // Convert steering vector to direction flags
+        right = steerX > 0.1;
+        left  = steerX < -0.1;
+        up    = steerY < -0.1;
+        down  = steerY > 0.1;
+
+        return true;
     }
 
     /**
