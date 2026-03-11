@@ -33,9 +33,9 @@ public class NPC {
     private static final Random rng = new Random();
 
     // Dynamic speed constants (same as player)
-    private static final int BASE_SPEED  = 7;
-    private static final int INITIAL_RAD = 18;
-    private static final int MIN_SPEED   = 3;
+    private static final double BASE_SPEED  = 7;
+    private static final double INITIAL_RAD = 2;
+    private static final double MIN_SPEED   = 3;
 
     // Navigation constants
     /** How far the NPC can "see" threats and prey */
@@ -75,7 +75,7 @@ public class NPC {
      * @param radius initial cell radius
      * @param usedNames names already taken (to avoid duplicates)
      */
-    public NPC(int cx, int cy, int radius, java.util.Set<String> usedNames) {
+    public NPC(int cx, int cy, double radius, java.util.Set<String> usedNames) {
         this.cell = new Cell(cx, cy, radius);
         this.cell.spawnAlpha = 1f;
         this.cell.cellColor = GamePanel.colors[rng.nextInt(GamePanel.colors.length)];
@@ -95,9 +95,10 @@ public class NPC {
         randomizeDirection();
     }
 
-    /** Updates the NPC's speed based on its current radius (same formula as player) */
+    /** Updates the NPC's speed based on its current radius (area-based, same formula as player) */
     public void updateSpeed() {
-        int dynSpeed = Math.max(MIN_SPEED, (int)(BASE_SPEED * (double) INITIAL_RAD / cell.cellRad));
+        double ratio = INITIAL_RAD / cell.cellRad;
+        double dynSpeed = Math.max(MIN_SPEED, BASE_SPEED * ratio * ratio);
         cell.speedX = dynSpeed;
         cell.speedY = dynSpeed;
     }
@@ -158,8 +159,8 @@ public class NPC {
      * This lets NPCs actively explore when nothing is in their vision range.
      */
     private void roam() {
-        int myCX = cell.x + cell.cellRad;
-        int myCY = cell.y + cell.cellRad;
+        double myCX = cell.x + cell.cellRad;
+        double myCY = cell.y + cell.cellRad;
 
         // Pick a new roam target if we don't have one or we're close to it
         if (roamTargetX < 0 || roamTargetY < 0 || directionTimer <= 0) {
@@ -197,9 +198,9 @@ public class NPC {
      * @return true if navigation found something to react to, false for random fallback
      */
     private boolean navigate(Cell playerCell, CopyOnWriteArrayList<NPC> npcList, CopyOnWriteArrayList<Cell> foodList) {
-        int myCX = cell.x + cell.cellRad;
-        int myCY = cell.y + cell.cellRad;
-        int myRad = cell.cellRad;
+        double myCX = cell.x + cell.cellRad;
+        double myCY = cell.y + cell.cellRad;
+        double myRad = cell.cellRad;
 
         // Accumulated steering vector
         double steerX = 0;
@@ -208,21 +209,21 @@ public class NPC {
 
         // Check player as potential threat or prey
         {
-            int pCX = playerCell.x + playerCell.cellRad;
-            int pCY = playerCell.y + playerCell.cellRad;
+            double pCX = playerCell.x + playerCell.cellRad;
+            double pCY = playerCell.y + playerCell.cellRad;
             double dx = pCX - myCX;
             double dy = pCY - myCY;
             double dist = Math.sqrt(dx * dx + dy * dy);
 
             if (dist > 0 && dist < VISION_RANGE) {
-                int pRad = playerCell.cellRad;
-                if (pRad > myRad + 4) {
+                double pRad = playerCell.cellRad;
+                if (pRad > myRad + 0.5) {
                     // Player is bigger — FLEE (stronger force when closer)
                     double weight = 3.0 * (VISION_RANGE - dist) / VISION_RANGE;
                     steerX -= weight * (dx / dist);
                     steerY -= weight * (dy / dist);
                     hasInput = true;
-                } else if (myRad > pRad + 4 && !distracted) {
+                } else if (myRad > pRad + 0.5 && !distracted) {
                     // Player is smaller — CHASE (unless distracted)
                     double weight = 2.0 * (VISION_RANGE - dist) / VISION_RANGE;
                     steerX += weight * (dx / dist);
@@ -235,21 +236,21 @@ public class NPC {
         // Check other NPCs as threats or prey
         for (NPC other : npcList) {
             if (other == this || !other.alive) continue;
-            int oCX = other.cell.x + other.cell.cellRad;
-            int oCY = other.cell.y + other.cell.cellRad;
+            double oCX = other.cell.x + other.cell.cellRad;
+            double oCY = other.cell.y + other.cell.cellRad;
             double dx = oCX - myCX;
             double dy = oCY - myCY;
             double dist = Math.sqrt(dx * dx + dy * dy);
 
             if (dist > 0 && dist < VISION_RANGE) {
-                int oRad = other.cell.cellRad;
-                if (oRad > myRad + 4) {
+                double oRad = other.cell.cellRad;
+                if (oRad > myRad + 0.5) {
                     // Other NPC is bigger — FLEE
                     double weight = 3.0 * (VISION_RANGE - dist) / VISION_RANGE;
                     steerX -= weight * (dx / dist);
                     steerY -= weight * (dy / dist);
                     hasInput = true;
-                } else if (myRad > oRad + 4 && !distracted) {
+                } else if (myRad > oRad + 0.5 && !distracted) {
                     // Other NPC is smaller — CHASE (unless distracted)
                     double weight = 1.5 * (VISION_RANGE - dist) / VISION_RANGE;
                     steerX += weight * (dx / dist);
@@ -261,13 +262,13 @@ public class NPC {
 
         // Check food cells as prey (always smaller, low priority chase)
         for (Cell food : foodList) {
-            int fCX = food.x + food.cellRad;
-            int fCY = food.y + food.cellRad;
+            double fCX = food.x + food.cellRad;
+            double fCY = food.y + food.cellRad;
             double dx = fCX - myCX;
             double dy = fCY - myCY;
             double dist = Math.sqrt(dx * dx + dy * dy);
 
-            if (dist > 0 && dist < VISION_RANGE && myRad > food.cellRad + 4 && !distracted) {
+            if (dist > 0 && dist < VISION_RANGE && myRad > food.cellRad + 0.5 && !distracted) {
                 double weight = 1.0 * (VISION_RANGE - dist) / VISION_RANGE;
                 steerX += weight * (dx / dist);
                 steerY += weight * (dy / dist);
@@ -294,13 +295,13 @@ public class NPC {
     }
 
     /**
-     * Grows this NPC by eating a cell of the given radius, using volume-based growth.
+     * Grows this NPC by eating a cell of the given radius, using area-based growth.
+     * r3 = sqrt(r1^2 + r2^2) — total area is conserved.
      * @param eatenRad radius of the eaten cell
      */
-    public void grow(int eatenRad) {
-        int newRad = (int) Math.pow(Math.pow(cell.cellRad, 3) + Math.pow(eatenRad, 3), 1.0 / 3);
-        if (newRad <= cell.cellRad) newRad = cell.cellRad + eatenRad;
+    public void grow(double eatenRad) {
+        double newRad = Math.sqrt(cell.cellRad * cell.cellRad + eatenRad * eatenRad);
         cell.cellRad = newRad;
-        score += eatenRad;
+        score += (int) Math.ceil(eatenRad);
     }
 }

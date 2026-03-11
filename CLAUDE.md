@@ -10,7 +10,7 @@ A Java Swing Agar.io clone developed as an AIU Hackathon group project.
 
 **Game concept:** The player controls a circular cell. Eating smaller cells increases the player's size and score. The goal is to achieve the highest score.
 
-**Current status:** Functional game with intelligent NPC opponents (navigation AI with error/jitter — flee bigger, chase smaller, roam when idle), smooth camera tracking, highscore, sound toggle, player color selection, fullscreen mode (default), configurable world dimensions, fixed cell density (1000 cells/M px), toroidal world wrapping, three-tier food cell categories (Small/Medium/Large), smooth cell spawn animation, eat sound, animated gradient background, anti-aliased rendering, player name display, dynamic speed (min 3), no-overlap spawn, volume-based growth, live scoreboard, game over screen with stats, and an in-game developer log.
+**Current status:** Functional game with intelligent NPC opponents (navigation AI with error/jitter — flee bigger, chase smaller, roam when idle), smooth camera tracking, highscore, sound toggle, player color selection, fullscreen mode (default), configurable world dimensions, configurable cell density (default 200 cells/M px), toroidal world wrapping, three-tier food cell categories (Small/Medium/Large), smooth cell spawn animation, eat sound, animated gradient background, anti-aliased rendering, player name display, dynamic speed (min 3), no-overlap spawn, area-based growth (`r3 = sqrt(r1² + r2²)`), double-precision cell radii, live scoreboard, game over screen with stats, and an in-game developer log.
 
 ---
 
@@ -126,7 +126,7 @@ Note: Assets (`.png`, `.wav`) live in `src/` alongside Java files. The build scr
 - **Two daemon game threads:**
   - `cellThread()` — initial batch spawn fills world to max capacity (cells appear immediately), then tops up in batches of 10 every 500ms; stops spawning when `gameOver`
   - `runGameThread()` — main loop at 10ms tick (~100 FPS); updates player (toroidal wrap), NPC AI, advances `spawnAlpha`, camera lerp, collision (player↔food, player↔NPC, NPC↔food, NPC↔NPC, NPC↔player), score, eat sound; skips all logic when `paused == true` or `gameOver == true`
-- **Cell density:** `static final double cellDensity = 1000.0` — 1000 food cells per million world-area pixels (= ~1000 cells in a 1000×1000 area); this value is fixed and cannot be changed in-game; `getMaxCells()` computes max food cells from density × world area
+- **Cell density:** `static double cellDensity = 200.0` — 200 food cells per million world-area pixels (= ~200 cells in a 1000×1000 area); configurable via Options and Dev Log; `getMaxCells()` computes max food cells from density × world area
 - **Food cell categories:** three tiers with fixed distribution:
   - **Small** (90%): radius 1
   - **Medium** (7%): radius 2–5
@@ -139,9 +139,9 @@ Note: Assets (`.png`, `.wav`) live in `src/` alongside Java files. The build scr
 - **Rendering:** enemy cells drawn with `AlphaComposite` and scaled radius driven by `spawnAlpha`; NPC cells drawn with names centered inside; full anti-aliasing (`RenderingHints.VALUE_ANTIALIAS_ON`) applied at top of `paintComponent`
 - **Player color:** `static Color playerColor` — set in Options, applied to playerCell on game start
 - **Player name:** `static String playerName` — set from the main menu name dialog before each game; rendered centered and font-size fitted inside the player cell (`fontSize = max(8, min(cellRad/2, 24))`)
-- **Dynamic speed:** `BASE_SPEED=7` at `INITIAL_RAD=18`; formula `max(MIN_SPEED=3, BASE_SPEED × INITIAL_RAD / cellRad)` applied every tick unless `devSpeedOverride` is true
+- **Dynamic speed:** `BASE_SPEED=7` at `INITIAL_RAD=2`; area-based formula `max(MIN_SPEED=3, BASE_SPEED × (INITIAL_RAD / cellRad)²)` applied every tick unless `devSpeedOverride` is true
 - **No-overlap spawn:** `generateNonOverlappingCell()` tries up to 50 positions; checks clearance against player, all existing food cells, and all NPC cells before placing a new food cell
-- **Growth formula fallback:** if volume-based formula does not increase radius, player grows by `eatenRad` (not +1)
+- **Area-based growth:** `newRad = sqrt(r1² + r2²)` — total area is conserved; cell radius is `double` for precision
 - **Easter egg:** when all NPCs are dead, plays `coolMusic.wav` and resets timer; after ~20 seconds the music finishes and the game ends
 - **Game over:** `triggerGameOver()` sets `gameOver = true`, stops music, shows overlay with final standings and a RESTART button; triggered either when all NPCs die (after easter egg music) or when an NPC eats the player
 - `colors[]` is `static` so OptionsPanel can reference it for the color picker
@@ -149,14 +149,14 @@ Note: Assets (`.png`, `.wav`) live in `src/` alongside Java files. The build scr
 - **Developer log:** `paused` (`volatile boolean`), `devSpeedOverride` (`boolean`), `devLogDialog` reference; `toggleDevLog()` opens/closes `DevLogDialog`; Ctrl+I / Meta+I key binding in `keyPressed`
 
 ### `Cell.java`
-- Stores: `x`, `y`, `cellRad`, `cellColor`, `speedX`, `speedY`
+- Stores: `x` (`double`), `y` (`double`), `cellRad` (`double`), `cellColor`, `speedX` (`double`), `speedY` (`double`)
 - `spawnAlpha` — `float` field (0 = newly created/invisible, 1 = fully visible); incremented 0.05/tick in `runGameThread`; player cell is set to 1 immediately on creation
-- **Constructor:** `Cell(int centerX, int centerY, int radius)` — sets `x = centerX - radius`, `y = centerY - radius`
+- **Constructor:** `Cell(int centerX, int centerY, double radius)` — sets `x = centerX - radius`, `y = centerY - radius`
   - The `screenWidth`/`screenHeight` fields are legacy dead code; bounds use `MainClass.WORLD_WIDTH/HEIGHT`
-- `drawCell(Graphics2D, int radius)` — enables `RenderingHints.VALUE_ANTIALIAS_ON`, then renders a filled oval at world coordinates
+- `drawCell(Graphics2D, int radius)` — enables `RenderingHints.VALUE_ANTIALIAS_ON`, then renders a filled oval at world coordinates (casts double x/y to int for rendering)
 - `updateCellPos(boolean right, left, up, down)` — moves then wraps position toroidally (modular arithmetic on the cell center); player emerges from the opposite side when reaching any world edge
 - `isCollision(Cell player, Cell enemy)` — circle-circle collision:
-  - Only triggers if `playerRad > enemyRad + 4` (minimum 4-unit size advantage)
+  - Only triggers if `playerRad > enemyRad + 0.5` (minimum 0.5-unit size advantage)
   - Center-to-center distance formula
 
 ### `NPC.java`
@@ -169,10 +169,10 @@ Note: Assets (`.png`, `.wav`) live in `src/` alongside Java files. The build scr
   - **Error chance:** 8% per tick (`ERROR_CHANCE = 0.08`) the NPC ignores navigation and moves randomly
   - **Mood swings:** 0.5% per tick (`MOOD_CHANGE_CHANCE = 0.005`) the NPC becomes "distracted" for 60–180 ticks, during which it will not chase prey but will still flee threats
   - **Roaming:** when nothing is in vision range, the NPC picks a random world target and steers towards it (with jitter), picking new targets upon arrival or timeout; this replaces the old random direction changes
-- **Speed:** uses same dynamic formula as player (`max(3, 7 × 18 / radius)`) via `updateSpeed()`
-- **Growth:** `grow(eatenRad)` applies volume-based growth with fallback, increments `score` by `eatenRad`
+- **Speed:** uses same area-based formula as player (`max(3, 7 × (2/radius)²)`) via `updateSpeed()`
+- **Growth:** `grow(eatenRad)` applies area-based growth (`r3 = sqrt(r1² + r2²)`), increments `score` by `ceil(eatenRad)`
 - **Name pool:** 20 pre-defined names (Blob, Chomper, Nibbler, etc.); duplicates avoided via `usedNames` set
-- **Constructor:** `NPC(int cx, int cy, int radius, Set<String> usedNames)` — picks unique name, random color from `GamePanel.colors[]`
+- **Constructor:** `NPC(int cx, int cy, double radius, Set<String> usedNames)` — picks unique name, random color from `GamePanel.colors[]`
 
 ### `HUD.java`
 - Extends `JPanel` (though only used as a data class)
@@ -199,10 +199,10 @@ Note: Assets (`.png`, `.wav`) live in `src/` alongside Java files. The build scr
 - **Editable fields:** Player Name, Player Radius, Score, Speed X, Speed Y, Position X, Position Y
 - **Manual Speed Override checkbox:** when checked, sets `gamePanel.devSpeedOverride = true`, preventing automatic speed recalculation each tick
 - **Enemy cell count** displayed as a read-only label
-- **Cell Density (cells/M px):** read-only label (fixed at 1000, cannot be changed)
+- **Cell Density (cells/M px):** editable field for `GamePanel.cellDensity`; changes take effect immediately on apply
 - **Max Food Cells:** read-only label computed from density × world area via `gamePanel.getMaxCells()`
 - **Refresh button** re-reads current game state into the fields
-- **Apply & Resume button** (and X window close) validates input, writes values to `gamePanel.playerCell` / `GamePanel.playerName` / `gamePanel.hud.score`, then unpauses the game
+- **Apply & Resume button** (and X window close) validates input, writes values to `gamePanel.playerCell` / `GamePanel.playerName` / `gamePanel.hud.score` / `GamePanel.cellDensity`, then unpauses the game
 - Ctrl+I / Meta+I keyboard shortcut (via `getRootPane().getInputMap`) also closes the dialog
 
 ### `Sound.java`
@@ -219,6 +219,7 @@ Note: Assets (`.png`, `.wav`) live in `src/` alongside Java files. The build scr
 - **COLOR button:** cycles `GamePanel.playerColorIndex` through `GamePanel.colors[]`; shows selected color in `colorPreview` panel; change applies to the next game started
 - **FULLSCREEN button:** toggles `MainClass.fullscreen` via `mainClass.toggleFullscreen()`; recreates the options panel to adjust layout for new screen dimensions
 - **World Size fields:** two text fields for width/height (minimum 800×600) with APPLY WORLD button; updates `MainClass.WORLD_WIDTH`/`WORLD_HEIGHT`; applies to next game
+- **Cell Density field:** text field for `GamePanel.cellDensity` (cells per million world-area pixels) with APPLY DENSITY button; shows computed max cells in confirmation
 - **BACK button:** returns to main menu
 - `paintComponent` draws background image scaled to screen; `paint` calls `super.paint(g)` then overlays title and highscore
 
@@ -274,24 +275,26 @@ cameraX += (targetX - cameraX) * 0.15;
 cameraY += (targetY - cameraY) * 0.15;
 ```
 
-### Cell Growth Formula (volume-based)
+### Cell Growth Formula (area-based)
 ```java
-int eatenRad = celllist.get(i).cellRad; // save BEFORE removing from list
+double eatenRad = celllist.get(i).cellRad; // save BEFORE removing from list
 celllist.remove(i);
-int newRad = (int) Math.pow(Math.pow(playerCell.cellRad, 3) + Math.pow(eatenRad, 3), 1.0 / 3);
-// Fallback: always grow by at least the eaten cell's radius (never just +1)
-if (newRad <= playerCell.cellRad) newRad = playerCell.cellRad + eatenRad;
+// Area-based: r3 = sqrt(r1^2 + r2^2) — total area is conserved
+double newRad = Math.sqrt(playerCell.cellRad * playerCell.cellRad + eatenRad * eatenRad);
 playerCell.cellRad = newRad;
+// Score rounds up: hud.score += (int) Math.ceil(eatenRad);
 ```
 
-### Dynamic Speed Formula
+### Dynamic Speed Formula (area-based)
 ```java
 // Applied every tick in runGameThread (unless devSpeedOverride is true)
-int dynSpeed = Math.max(MIN_SPEED, (int)(BASE_SPEED * (double) INITIAL_RAD / playerCell.cellRad));
+// Speed scales with area ratio: speed ∝ (initialArea / currentArea)
+double ratio = INITIAL_RAD / playerCell.cellRad;
+double dynSpeed = Math.max(MIN_SPEED, BASE_SPEED * ratio * ratio);
 playerCell.speedX = dynSpeed;
 playerCell.speedY = dynSpeed;
-// BASE_SPEED=7, INITIAL_RAD=18, MIN_SPEED=3
-// e.g. rad=18 → speed=7, rad=36 → speed=3 (min), rad=90 → speed=3 (min)
+// BASE_SPEED=7, INITIAL_RAD=2, MIN_SPEED=3
+// e.g. rad=2 → speed=7, rad=2.83 → speed=3.5, rad=3.06 → speed=3 (min)
 ```
 
 ### No-overlap Spawn
@@ -322,26 +325,27 @@ public static Color[] colors = {BLACK, BLUE, CYAN, DARK_GRAY, GRAY, GREEN, LIGHT
 
 1. **JavaDoc on every class** — include `@author` tag, brief purpose, and notable behavior.
 2. **Use `MainClass` constants** for screen, world, and button dimensions — never hardcode `1280`, `720`, `3840`, `2160`, `200`, or `50`.
-3. **Player initial state:** radius `cellrad = 18`, spawns at world center `(WORLD_WIDTH/2, WORLD_HEIGHT/2)`, color = `GamePanel.playerColor`.
+3. **Player initial state:** radius `cellrad = 2` (double), spawns at world center `(WORLD_WIDTH/2, WORLD_HEIGHT/2)`, color = `GamePanel.playerColor`. NPCs also start at radius 2.
 4. **Food cell radius:** determined by fixed three-tier categories — Small (90%, radius 1), Medium (7%, radius 2–5), Large (3%, radius 5–10). Use `randomFoodRadius()` for all spawns. These values cannot be changed in-game.
 5. **Spawn positions use world coordinates** — random in `[SPAWN_BORDER=40, WORLD_WIDTH - SPAWN_BORDER]` × `[SPAWN_BORDER, WORLD_HEIGHT - SPAWN_BORDER]`.
 6. **All new food cell spawns go through `generateNonOverlappingCell()`** — never place cells directly without the overlap check (checks player, food cells, and NPCs).
-7. **Growth fallback uses `eatenRad`, not `+1`** — `if (newRad <= playerCell.cellRad) newRad = playerCell.cellRad + eatenRad`.
+7. **Area-based growth** — `newRad = sqrt(r1² + r2²)`; all cell radii are `double`; score uses `(int) Math.ceil(eatenRad)`.
 8. **Anti-aliasing must be enabled** at the top of `paintComponent` and inside `Cell.drawCell` via `RenderingHints.VALUE_ANTIALIAS_ON`.
 9. **Assets live in `src/`** alongside Java files — do not create a separate `resources/` directory without updating the build setup.
 10. **No external libraries** — the project has no dependency manager; do not add third-party JARs without establishing a build system first.
 11. **All game threads are daemon threads** — they terminate automatically when the JVM exits.
 12. **`paused` and `gameOver` flags must be `volatile`** — they are written by the Swing EDT (key events, dialog close, game end) and read by the game thread.
-13. **Score increases by eaten cell's radius** — `hud.score += eatenRad`, not `hud.score++`. NPCs also track score the same way.
+13. **Score increases by eaten cell's radius** — `hud.score += (int) Math.ceil(eatenRad)`. NPCs also track score the same way.
 14. **NPC count minimum is 3** — enforced in `MainPanel` via `Math.max(3, ...)` on user input.
 15. **NPC names must be unique** — use a `Set<String>` of used names when spawning NPCs to avoid duplicates.
 16. **NPC `update()` requires navigation context** — always call `npc.update(playerCell, npcList, celllist)` with player, NPC list, and food list so navigation AI can detect threats and prey.
-17. **Cell density is fixed at 1000 cells/M px** — use `getMaxCells()` (density × world area) instead of hardcoded limits; ~1000 cells per 1000×1000 area; this value cannot be changed in-game.
+17. **Cell density default is 200 cells/M px** — use `getMaxCells()` (density × world area) instead of hardcoded limits; ~200 cells per 1000×1000 area; configurable via Options and Dev Log.
 18. **Fullscreen is the default** — `MainClass.fullscreen = true`; screen dimensions are set to display size on startup; toggling recalculates `SCREEN_WIDTH`/`SCREEN_HEIGHT`.
 19. **World dimensions are configurable** — minimum 800×600; changes apply to the next game session.
 20. **Panel switching must call `repaint()`** — always call `mainClass.repaint()` after `mainClass.revalidate()` when swapping panels, otherwise stale rendering artifacts persist in fullscreen mode.
 21. **All panels must set `setPreferredSize()`** — in addition to `setSize()`, panels must set preferred size to `(SCREEN_WIDTH, SCREEN_HEIGHT)` for proper layout in the content pane.
-22. **Food cells are immutable** — food cells cannot move, cannot eat other cells, and their category distribution (Small 90% / Medium 7% / Large 3%) and density (1000 cells/M px) cannot be changed in-game.
+22. **Food cells are immutable** — food cells cannot move, cannot eat other cells, and their category distribution (Small 90% / Medium 7% / Large 3%) cannot be changed in-game. Density is configurable.
+24. **All cell radii are `double`** — `cellRad`, `x`, `y`, `speedX`, `speedY` are all `double` in `Cell.java`; cast to `int` only for rendering (`Math.round()` for `drawCell`/`fillOval`).
 23. **NPC AI has intentional imperfection** — `ERROR_CHANCE` (8%), `STEER_JITTER` (0.45 rad), and `MOOD_CHANGE_CHANCE` (0.5%) parameters make NPCs behave less robotically; do not remove these without team agreement.
 
 ---

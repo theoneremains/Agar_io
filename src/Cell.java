@@ -7,22 +7,23 @@ import java.awt.RenderingHints;
  * Updates the position of cells
  * Supports smooth spawn animation via spawnAlpha (0=invisible, 1=fully visible)
  * Player cell wraps toroidally around world boundaries instead of stopping
+ * Cell radius and speed are double-precision for smooth area-based growth
  * @author Kamil Yunus Özkaya
  */
 public class Cell
 {
-    public int speedX = 5;
-    public int speedY = 5;
-    public int cellRad;
-    public int x;
-    public int y;
+    public double speedX = 5;
+    public double speedY = 5;
+    public double cellRad;
+    public double x;
+    public double y;
     public int screenWidth;
     public int screenHeight;
-    private int radiusDifference = 4;
+    private double radiusDifference = 0.5;
     public Color cellColor = Color.BLACK;
     /** Spawn animation progress: 0 = just created (invisible), 1 = fully visible */
     public float spawnAlpha = 0f;
-    public Cell(int screenWidth, int screenHeight, int cellRad)
+    public Cell(int screenWidth, int screenHeight, double cellRad)
     {
         this.cellRad = cellRad;
         this.screenWidth = screenWidth;
@@ -31,12 +32,14 @@ public class Cell
         this.y = (screenHeight - cellRad);
     }
 
-    public void drawCell(Graphics2D cell,int cellRad)
+    public void drawCell(Graphics2D cell, int cellRad)
     {
         cell.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
         cell.setRenderingHint(RenderingHints.KEY_RENDERING,    RenderingHints.VALUE_RENDER_QUALITY);
         cell.setColor(cellColor);
-        cell.fillOval(x, y, cellRad*2, cellRad*2);
+        int ix = (int) Math.round(x);
+        int iy = (int) Math.round(y);
+        cell.fillOval(ix, iy, cellRad*2, cellRad*2);
     }
 
     public void updateCellPos(boolean right, boolean left, boolean up, boolean down)
@@ -47,8 +50,8 @@ public class Cell
         if(down)  y += speedY;
 
         // Toroidal world wrapping: player emerges from opposite side when reaching any edge
-        int cx = ((x + cellRad) % MainClass.WORLD_WIDTH  + MainClass.WORLD_WIDTH)  % MainClass.WORLD_WIDTH;
-        int cy = ((y + cellRad) % MainClass.WORLD_HEIGHT + MainClass.WORLD_HEIGHT) % MainClass.WORLD_HEIGHT;
+        double cx = ((x + cellRad) % MainClass.WORLD_WIDTH  + MainClass.WORLD_WIDTH)  % MainClass.WORLD_WIDTH;
+        double cy = ((y + cellRad) % MainClass.WORLD_HEIGHT + MainClass.WORLD_HEIGHT) % MainClass.WORLD_HEIGHT;
         x = cx - cellRad;
         y = cy - cellRad;
     }
@@ -65,11 +68,11 @@ public class Cell
         }
         return false;
     }
-    public int getX()
+    public double getX()
     {
         return x;
     }
-    public int getY(){
+    public double getY(){
         return y;
     }
 }
