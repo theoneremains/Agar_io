@@ -26,7 +26,7 @@ public class DevLogDialog extends JDialog {
     private JTextField tfPosX;
     private JTextField tfPosY;
     private JLabel     lblEnemyCount;
-    private JTextField tfCellDensity;
+    private JLabel     lblCellDensity;
     private JLabel     lblMaxCells;
 
     /**
@@ -170,11 +170,13 @@ public class DevLogDialog extends JDialog {
         content.add(lblEnemyCount, fc);
         row++;
 
-        // ---- Cell Density ----
+        // ---- Cell Density (read-only — fixed at 1000 cells/M px) ----
         lc.gridy = row; fc.gridy = row;
         content.add(makeLabel("Cell Density (cells/M px):", labelFont, labelColor), lc);
-        tfCellDensity = makeField(fieldFont, fieldBg, fieldFg);
-        content.add(tfCellDensity, fc);
+        lblCellDensity = new JLabel();
+        lblCellDensity.setForeground(new Color(120, 255, 120));
+        lblCellDensity.setFont(fieldFont);
+        content.add(lblCellDensity, fc);
         row++;
 
         // ---- Max cells (read-only, computed from density) ----
@@ -221,7 +223,7 @@ public class DevLogDialog extends JDialog {
         tfPosX.setText(String.valueOf(p.x + p.cellRad));
         tfPosY.setText(String.valueOf(p.y + p.cellRad));
         lblEnemyCount.setText(String.valueOf(gamePanel.celllist.size()));
-        tfCellDensity.setText(String.format("%.2f", GamePanel.cellDensity));
+        lblCellDensity.setText(String.format("%.0f", GamePanel.cellDensity));
         lblMaxCells.setText(String.valueOf(gamePanel.getMaxCells()));
     }
 
@@ -268,12 +270,6 @@ public class DevLogDialog extends JDialog {
                 p.x = cx - p.cellRad;
                 p.y = cy - p.cellRad;
             }
-        } catch (NumberFormatException ignored) {}
-
-        // Cell density
-        try {
-            double d = Double.parseDouble(tfCellDensity.getText().trim());
-            if (d > 0) GamePanel.cellDensity = d;
         } catch (NumberFormatException ignored) {}
 
         gamePanel.paused = false;

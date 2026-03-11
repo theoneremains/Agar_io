@@ -34,13 +34,11 @@ public class OptionsPanel extends JPanel {
     private JTextField tfWorldHeight;
     private JButton applyWorldButton = new JButton("APPLY WORLD");
 
-    // Cell density input field
-    private JTextField tfCellDensity;
-    private JButton applyDensityButton = new JButton("APPLY DENSITY");
 
     public OptionsPanel(MainClass mainClass)
     {
         setSize(MainClass.SCREEN_WIDTH, MainClass.SCREEN_HEIGHT);
+        setPreferredSize(new Dimension(MainClass.SCREEN_WIDTH, MainClass.SCREEN_HEIGHT));
 
         setFocusable(true);
 
@@ -84,23 +82,6 @@ public class OptionsPanel extends JPanel {
         applyWorldButton.setBounds(centerX - MainClass.BUTTON_WIDTH / 2 + 250, centerY + 10, 120, 25);
         applyWorldButton.setFont(new Font("Arial", Font.PLAIN, 11));
 
-        // Cell density section
-        JLabel densityLabel = new JLabel("Cell Density:");
-        densityLabel.setForeground(Color.WHITE);
-        densityLabel.setFont(new Font("Arial", Font.BOLD, 14));
-        densityLabel.setBounds(centerX - MainClass.BUTTON_WIDTH / 2, centerY + 45, 110, 25);
-
-        tfCellDensity = new JTextField(String.format("%.2f", GamePanel.cellDensity));
-        tfCellDensity.setBounds(centerX - MainClass.BUTTON_WIDTH / 2 + 110, centerY + 45, 60, 25);
-
-        JLabel densityHint = new JLabel("cells/M px");
-        densityHint.setForeground(new Color(200, 200, 200));
-        densityHint.setFont(new Font("Arial", Font.PLAIN, 11));
-        densityHint.setBounds(centerX - MainClass.BUTTON_WIDTH / 2 + 175, centerY + 45, 80, 25);
-
-        applyDensityButton.setBounds(centerX - MainClass.BUTTON_WIDTH / 2 + 250, centerY + 45, 120, 25);
-        applyDensityButton.setFont(new Font("Arial", Font.PLAIN, 11));
-
         backButton.setBounds(
                 centerX - MainClass.BUTTON_WIDTH / 2,
                 centerY + 3 * MainClass.BUTTON_HEIGHT,
@@ -123,10 +104,6 @@ public class OptionsPanel extends JPanel {
         add(xLabel);
         add(tfWorldHeight);
         add(applyWorldButton);
-        add(densityLabel);
-        add(tfCellDensity);
-        add(densityHint);
-        add(applyDensityButton);
 
         try
         {
@@ -142,8 +119,9 @@ public class OptionsPanel extends JPanel {
             mainClass.mainPanel = new MainPanel(mainClass);
             mainClass.getContentPane().removeAll();
             mainClass.getContentPane().add(mainClass.mainPanel);
-            mainClass.mainPanel.requestFocusInWindow();
             mainClass.revalidate();
+            mainClass.repaint();
+            mainClass.mainPanel.requestFocusInWindow();
         });
 
         // SOUND button: toggle all game sounds on/off
@@ -170,9 +148,9 @@ public class OptionsPanel extends JPanel {
             mainClass.optionsPanel = new OptionsPanel(mainClass);
             mainClass.getContentPane().removeAll();
             mainClass.getContentPane().add(mainClass.optionsPanel);
-            mainClass.optionsPanel.requestFocusInWindow();
             mainClass.revalidate();
             mainClass.repaint();
+            mainClass.optionsPanel.requestFocusInWindow();
         });
 
         // APPLY WORLD SIZE button: update world dimensions
@@ -199,30 +177,6 @@ public class OptionsPanel extends JPanel {
             }
         });
 
-        // APPLY DENSITY button: update cell density
-        applyDensityButton.addActionListener(arg0 -> {
-            click_sound.playSound();
-            try {
-                double d = Double.parseDouble(tfCellDensity.getText().trim());
-                if (d > 0) {
-                    GamePanel.cellDensity = d;
-                    double worldArea = (double) MainClass.WORLD_WIDTH * MainClass.WORLD_HEIGHT / 1_000_000.0;
-                    int maxCells = Math.max(5, (int) Math.round(d * worldArea));
-                    JOptionPane.showMessageDialog(mainClass,
-                        "Cell density set to " + String.format("%.2f", d) + " cells/M px.\n" +
-                        "Max food cells for current world: " + maxCells,
-                        "Cell Density Updated", JOptionPane.INFORMATION_MESSAGE);
-                } else {
-                    JOptionPane.showMessageDialog(mainClass,
-                        "Density must be a positive number.",
-                        "Invalid Density", JOptionPane.WARNING_MESSAGE);
-                }
-            } catch (NumberFormatException ex) {
-                JOptionPane.showMessageDialog(mainClass,
-                    "Please enter a valid number for density.",
-                    "Invalid Input", JOptionPane.WARNING_MESSAGE);
-            }
-        });
     }
 
     @Override

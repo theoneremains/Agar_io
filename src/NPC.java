@@ -41,6 +41,25 @@ public class NPC {
     /** How far the NPC can "see" threats and prey */
     private static final int VISION_RANGE = 400;
 
+    /** Chance (0–1) per tick that the NPC ignores its navigation and makes a random move */
+    private static final double ERROR_CHANCE = 0.08;
+
+    /** Maximum angular jitter (radians) added to the steering vector each tick */
+    private static final double STEER_JITTER = 0.45;
+
+    /** Chance per tick that an NPC spontaneously changes behaviour (e.g. stops chasing) */
+    private static final double MOOD_CHANGE_CHANCE = 0.005;
+
+    /** When true the NPC is in a "distracted" phase and will roam instead of chasing */
+    private boolean distracted = false;
+
+    /** Ticks remaining in the current distracted phase */
+    private int distractedTimer = 0;
+
+    /** Target position for roaming behaviour (world coordinates) */
+    private int roamTargetX = -1;
+    private int roamTargetY = -1;
+
     /** Pool of random NPC names */
     private static final String[] NPC_NAMES = {
         "Blob", "Chomper", "Nibbler", "Gulper", "Muncher",
@@ -105,18 +124,70 @@ public class NPC {
 
         updateSpeed();
 
+        // Random mood swing: occasionally become "distracted" and stop chasing
+        if (!distracted && rng.nextDouble() < MOOD_CHANGE_CHANCE) {
+            distracted = true;
+            distractedTimer = 60 + rng.nextInt(120); // distracted for 60–180 ticks
+        }
+        if (distracted) {
+            distractedTimer--;
+            if (distractedTimer <= 0) distracted = false;
+        }
+
+        // Random error: occasionally ignore navigation entirely and move randomly
+        if (rng.nextDouble() < ERROR_CHANCE) {
+            randomizeDirection();
+            cell.updateCellPos(right, left, up, down);
+            return;
+        }
+
         // Navigation AI: compute steering direction based on threats and prey
         boolean navigated = navigate(playerCell, npcList, foodList);
 
         if (!navigated) {
-            // No threats or prey nearby — fall back to random movement
-            directionTimer--;
-            if (directionTimer <= 0) {
-                randomizeDirection();
-            }
+            // No threats or prey in vision range — roam towards a random target
+            roam();
         }
 
         cell.updateCellPos(right, left, up, down);
+    }
+
+    /**
+     * Roaming behaviour: picks a random target in the world and steers towards it.
+     * When the NPC reaches the target (or after a timeout), picks a new target.
+     * This lets NPCs actively explore when nothing is in their vision range.
+     */
+    private void roam() {
+        int myCX = cell.x + cell.cellRad;
+        int myCY = cell.y + cell.cellRad;
+
+        // Pick a new roam target if we don't have one or we're close to it
+        if (roamTargetX < 0 || roamTargetY < 0 || directionTimer <= 0) {
+            roamTargetX = 40 + rng.nextInt(Math.max(1, MainClass.WORLD_WIDTH - 80));
+            roamTargetY = 40 + rng.nextInt(Math.max(1, MainClass.WORLD_HEIGHT - 80));
+            directionTimer = 100 + rng.nextInt(200);
+        }
+
+        double dx = roamTargetX - myCX;
+        double dy = roamTargetY - myCY;
+        double dist = Math.sqrt(dx * dx + dy * dy);
+
+        if (dist < 50) {
+            // Reached target, pick a new one next tick
+            directionTimer = 0;
+            return;
+        }
+
+        directionTimer--;
+
+        // Steer towards roam target with some jitter
+        double angle = Math.atan2(dy, dx);
+        angle += (rng.nextDouble() - 0.5) * STEER_JITTER * 2;
+
+        right = Math.cos(angle) > 0.1;
+        left  = Math.cos(angle) < -0.1;
+        down  = Math.sin(angle) > 0.1;
+        up    = Math.sin(angle) < -0.1;
     }
 
     /**
@@ -151,8 +222,8 @@ public class NPC {
                     steerX -= weight * (dx / dist);
                     steerY -= weight * (dy / dist);
                     hasInput = true;
-                } else if (myRad > pRad + 4) {
-                    // Player is smaller — CHASE
+                } else if (myRad > pRad + 4 && !distracted) {
+                    // Player is smaller — CHASE (unless distracted)
                     double weight = 2.0 * (VISION_RANGE - dist) / VISION_RANGE;
                     steerX += weight * (dx / dist);
                     steerY += weight * (dy / dist);
@@ -178,8 +249,8 @@ public class NPC {
                     steerX -= weight * (dx / dist);
                     steerY -= weight * (dy / dist);
                     hasInput = true;
-                } else if (myRad > oRad + 4) {
-                    // Other NPC is smaller — CHASE
+                } else if (myRad > oRad + 4 && !distracted) {
+                    // Other NPC is smaller — CHASE (unless distracted)
                     double weight = 1.5 * (VISION_RANGE - dist) / VISION_RANGE;
                     steerX += weight * (dx / dist);
                     steerY += weight * (dy / dist);
@@ -196,7 +267,7 @@ public class NPC {
             double dy = fCY - myCY;
             double dist = Math.sqrt(dx * dx + dy * dy);
 
-            if (dist > 0 && dist < VISION_RANGE && myRad > food.cellRad + 4) {
+            if (dist > 0 && dist < VISION_RANGE && myRad > food.cellRad + 4 && !distracted) {
                 double weight = 1.0 * (VISION_RANGE - dist) / VISION_RANGE;
                 steerX += weight * (dx / dist);
                 steerY += weight * (dy / dist);
@@ -205,6 +276,13 @@ public class NPC {
         }
 
         if (!hasInput) return false;
+
+        // Add angular jitter to make movement less robotic
+        double steerAngle = Math.atan2(steerY, steerX);
+        double steerMag = Math.sqrt(steerX * steerX + steerY * steerY);
+        steerAngle += (rng.nextDouble() - 0.5) * STEER_JITTER * 2;
+        steerX = steerMag * Math.cos(steerAngle);
+        steerY = steerMag * Math.sin(steerAngle);
 
         // Convert steering vector to direction flags
         right = steerX > 0.1;
