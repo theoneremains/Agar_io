@@ -50,7 +50,18 @@ public class MainPanel extends JPanel
             String name = JOptionPane.showInputDialog(mainClass, "Enter your name:", "Player");
             if (name == null || name.trim().isEmpty()) name = "Player";
             GamePanel.playerName = name.trim();
-            mainClass.gamePanel = new GamePanel(mainClass);
+
+            // Ask for NPC count (minimum 3)
+            String npcInput = JOptionPane.showInputDialog(mainClass,
+                "Number of NPC players (minimum 3):", "3");
+            int npcCount = 3;
+            if (npcInput != null) {
+                try {
+                    npcCount = Math.max(3, Integer.parseInt(npcInput.trim()));
+                } catch (NumberFormatException ignored) {}
+            }
+
+            mainClass.gamePanel = new GamePanel(mainClass, npcCount);
             mainClass.getContentPane().removeAll();
             mainClass.getContentPane().add(mainClass.gamePanel);
             mainClass.gamePanel.requestFocusInWindow();
