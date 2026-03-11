@@ -8,7 +8,8 @@ import java.awt.event.*;
  * DevLogDialog : Developer log / cheat window for the Agar.io game.
  * Opened and closed via Ctrl+I (Windows/Linux) or Cmd+I (macOS).
  * While open the game loop is paused.
- * Displays current world state and allows editing all key values.
+ * Displays current world state and allows editing all key values,
+ * including cell density for controlling food cell spawn rates.
  * @author Kamil Yunus Özkaya
  */
 public class DevLogDialog extends JDialog {
@@ -25,6 +26,8 @@ public class DevLogDialog extends JDialog {
     private JTextField tfPosX;
     private JTextField tfPosY;
     private JLabel     lblEnemyCount;
+    private JTextField tfCellDensity;
+    private JLabel     lblMaxCells;
 
     /**
      * Constructs the developer log dialog.
@@ -35,7 +38,7 @@ public class DevLogDialog extends JDialog {
         super(owner, "Dev Log  [Ctrl+I / Cmd+I to close]", false); // non-modal
         this.gamePanel = gamePanel;
 
-        setSize(420, 420);
+        setSize(420, 500);
         setLocationRelativeTo(owner);
         setResizable(false);
         setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
@@ -88,7 +91,7 @@ public class DevLogDialog extends JDialog {
         int row = 0;
 
         // ---- Section title ----
-        JLabel title = new JLabel("  Developer Log — Editable World State");
+        JLabel title = new JLabel("  Developer Log \u2014 Editable World State");
         title.setForeground(Color.YELLOW);
         title.setFont(new Font("Arial", Font.BOLD, 14));
         GridBagConstraints tc = new GridBagConstraints();
@@ -167,6 +170,22 @@ public class DevLogDialog extends JDialog {
         content.add(lblEnemyCount, fc);
         row++;
 
+        // ---- Cell Density ----
+        lc.gridy = row; fc.gridy = row;
+        content.add(makeLabel("Cell Density (cells/M px):", labelFont, labelColor), lc);
+        tfCellDensity = makeField(fieldFont, fieldBg, fieldFg);
+        content.add(tfCellDensity, fc);
+        row++;
+
+        // ---- Max cells (read-only, computed from density) ----
+        lc.gridy = row; fc.gridy = row;
+        content.add(makeLabel("Max Food Cells:", labelFont, labelColor), lc);
+        lblMaxCells = new JLabel();
+        lblMaxCells.setForeground(new Color(120, 255, 120));
+        lblMaxCells.setFont(fieldFont);
+        content.add(lblMaxCells, fc);
+        row++;
+
         // ---- Buttons row ----
         JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
         btnRow.setBackground(new Color(30, 30, 40));
@@ -202,6 +221,8 @@ public class DevLogDialog extends JDialog {
         tfPosX.setText(String.valueOf(p.x + p.cellRad));
         tfPosY.setText(String.valueOf(p.y + p.cellRad));
         lblEnemyCount.setText(String.valueOf(gamePanel.celllist.size()));
+        tfCellDensity.setText(String.format("%.2f", GamePanel.cellDensity));
+        lblMaxCells.setText(String.valueOf(gamePanel.getMaxCells()));
     }
 
     /**
@@ -247,6 +268,12 @@ public class DevLogDialog extends JDialog {
                 p.x = cx - p.cellRad;
                 p.y = cy - p.cellRad;
             }
+        } catch (NumberFormatException ignored) {}
+
+        // Cell density
+        try {
+            double d = Double.parseDouble(tfCellDensity.getText().trim());
+            if (d > 0) GamePanel.cellDensity = d;
         } catch (NumberFormatException ignored) {}
 
         gamePanel.paused = false;
