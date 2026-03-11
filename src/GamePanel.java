@@ -49,9 +49,16 @@ public class GamePanel extends JPanel implements KeyListener {
 
     public int cellrad = 18;                            // Radius of the player cell initially
 
-    // Enemy cell size bounds (random per spawn, capped below player size)
-    private static final int MIN_ENEMY_RAD    = 8;
-    private static final int MAX_ENEMY_RAD    = 35;
+    // Food cell categories (Small / Medium / Large)
+    // These values are fixed and cannot be changed in-game.
+    private static final int SMALL_RAD        = 1;     // Small: radius 1
+    private static final int MEDIUM_RAD_MIN   = 2;     // Medium: radius 2–5
+    private static final int MEDIUM_RAD_MAX   = 5;
+    private static final int LARGE_RAD_MIN    = 5;     // Large: radius 5–10
+    private static final int LARGE_RAD_MAX    = 10;
+    private static final double SMALL_CHANCE  = 0.90;  // 90% small
+    private static final double MEDIUM_CHANCE = 0.07;  // 7% medium
+    // Large = remaining 3%
     private static final int SPAWN_BORDER     = 40;    // spawn boundary buffer
 
     // Dynamic speed constants
@@ -84,10 +91,10 @@ public class GamePanel extends JPanel implements KeyListener {
 
     /**
      * Cell density: number of food cells per million world-area pixels.
-     * Default based on original settings: 30 cells in 3840*2160 = ~3.62 cells per million px.
-     * Configurable via settings and dev log.
+     * Default: 1000 cells per 1000x1000 area = 1000 cells per million px.
+     * This value is fixed and cannot be changed in-game.
      */
-    public static double cellDensity = 30.0 / ((3840.0 * 2160.0) / 1_000_000.0);
+    public static final double cellDensity = 1000.0;
 
     /** Returns the maximum number of food cells based on current world size and density */
     public int getMaxCells() {
@@ -104,6 +111,7 @@ public class GamePanel extends JPanel implements KeyListener {
         this.npcCount = npcCount;
 
         setSize(MainClass.SCREEN_WIDTH, MainClass.SCREEN_HEIGHT);
+        setPreferredSize(new Dimension(MainClass.SCREEN_WIDTH, MainClass.SCREEN_HEIGHT));
 
         setFocusable(true);
 
@@ -145,35 +153,57 @@ public class GamePanel extends JPanel implements KeyListener {
         }
     }
 
-    /** Returns a random enemy radius between MIN_ENEMY_RAD and MAX_ENEMY_RAD,
-     *  capped to stay at least 5 units smaller than the player's current radius. */
-    private int randomEnemyRadius() {
-        int cap = Math.min(MAX_ENEMY_RAD, Math.max(MIN_ENEMY_RAD + 1, playerCell.cellRad - 5));
-        return MIN_ENEMY_RAD + random.nextInt(cap - MIN_ENEMY_RAD + 1);
+    /**
+     * Returns a random food cell radius based on the three fixed categories:
+     * Small (90%, radius 1), Medium (7%, radius 2–5), Large (3%, radius 5–10).
+     */
+    private int randomFoodRadius() {
+        double roll = random.nextDouble();
+        if (roll < SMALL_CHANCE) {
+            return SMALL_RAD;
+        } else if (roll < SMALL_CHANCE + MEDIUM_CHANCE) {
+            return MEDIUM_RAD_MIN + random.nextInt(MEDIUM_RAD_MAX - MEDIUM_RAD_MIN + 1);
+        } else {
+            return LARGE_RAD_MIN + random.nextInt(LARGE_RAD_MAX - LARGE_RAD_MIN + 1);
+        }
     }
 
     /**
-     * Generates a new enemy cell at a position that does not overlap the player or any
-     * existing enemy cell. Attempts up to 50 random positions before falling back.
+     * Generates a new food cell at a position that does not overlap the player, any
+     * existing food cell, or any NPC. Attempts up to 50 random positions before falling back.
+     * Food cells cannot move, cannot eat other cells. Their radius is determined by
+     * the fixed category distribution (Small 90%, Medium 7%, Large 3%).
      */
     private Cell generateNonOverlappingCell() {
         final int MAX_ATTEMPTS = 50;
         for (int attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
             int cx = SPAWN_BORDER + random.nextInt(MainClass.WORLD_WIDTH  - 2 * SPAWN_BORDER);
             int cy = SPAWN_BORDER + random.nextInt(MainClass.WORLD_HEIGHT - 2 * SPAWN_BORDER);
-            int r  = randomEnemyRadius();
+            int r  = randomFoodRadius();
 
             // Check clearance against the player cell
             double dx = cx - (playerCell.x + playerCell.cellRad);
             double dy = cy - (playerCell.y + playerCell.cellRad);
             if (Math.sqrt(dx * dx + dy * dy) < playerCell.cellRad + r + 20) continue;
 
-            // Check clearance against all existing enemy cells
+            // Check clearance against all existing food cells
             boolean overlaps = false;
             for (Cell c : celllist) {
                 double ex = cx - (c.x + c.cellRad);
                 double ey = cy - (c.y + c.cellRad);
                 if (Math.sqrt(ex * ex + ey * ey) < c.cellRad + r + 10) {
+                    overlaps = true;
+                    break;
+                }
+            }
+            if (overlaps) continue;
+
+            // Check clearance against all NPC cells
+            for (NPC npc : npcList) {
+                if (!npc.alive) continue;
+                double nx = cx - (npc.cell.x + npc.cell.cellRad);
+                double ny = cy - (npc.cell.y + npc.cell.cellRad);
+                if (Math.sqrt(nx * nx + ny * ny) < npc.cell.cellRad + r + 10) {
                     overlaps = true;
                     break;
                 }
@@ -184,24 +214,40 @@ public class GamePanel extends JPanel implements KeyListener {
         return new Cell(
             SPAWN_BORDER + random.nextInt(MainClass.WORLD_WIDTH  - 2 * SPAWN_BORDER),
             SPAWN_BORDER + random.nextInt(MainClass.WORLD_HEIGHT - 2 * SPAWN_BORDER),
-            randomEnemyRadius());
+            randomFoodRadius());
     }
 
-    // Randomly creates cells in random world positions
+    /**
+     * Spawns the initial batch of food cells to fill up the world,
+     * then continuously tops up at a steady rate.
+     */
     public void cellThread() {
         Thread cellthread = new Thread() {
             @Override
             public void run() {
+                // Initial batch spawn: fill up to max cells quickly
+                int maxCells = getMaxCells();
+                while (celllist.size() < maxCells && !gameOver) {
+                    Cell c = generateNonOverlappingCell();
+                    c.cellColor = colors[random.nextInt(colors.length)];
+                    c.spawnAlpha = 1f; // initial cells appear immediately
+                    celllist.add(c);
+                }
+                // Continuous top-up: spawn a small batch every tick to replace eaten cells
                 while (true) {
-                    if (!gameOver && celllist.size() < getMaxCells()) {
-                        coloredCell = generateNonOverlappingCell();
-                        coloredCell.cellColor = colors[random.nextInt(colors.length)];
-                        // spawnAlpha starts at 0 — grow-in animation handled in runGameThread
-                        celllist.add(coloredCell);
+                    if (!gameOver) {
+                        int deficit = getMaxCells() - celllist.size();
+                        int batch = Math.min(deficit, 10); // spawn up to 10 per cycle
+                        for (int i = 0; i < batch; i++) {
+                            Cell c = generateNonOverlappingCell();
+                            c.cellColor = colors[random.nextInt(colors.length)];
+                            // spawnAlpha starts at 0 — grow-in animation handled in runGameThread
+                            celllist.add(c);
+                        }
                     }
                     repaint();
                     try {
-                        Thread.sleep(random.nextInt(12) * 1000); // 0-12 seconds between spawns
+                        Thread.sleep(500); // check every 500ms
                     } catch (InterruptedException e) {
                         e.printStackTrace();
                     }
@@ -263,11 +309,6 @@ public class GamePanel extends JPanel implements KeyListener {
                                 if (hud.score > highscore) highscore = hud.score;
                                 celllist.remove(i);
                                 Sound.playEatSound(); // Soothing bloop feedback on eat
-                                if (celllist.size() < getMaxCells() * 2 / 3) {
-                                    coloredCell = generateNonOverlappingCell();
-                                    coloredCell.cellColor = colors[random.nextInt(colors.length)];
-                                    celllist.add(coloredCell);
-                                }
                                 // Increases the size of the player cell based on volume eaten
                                 int newRad = (int) Math.pow(Math.pow(playerCell.cellRad, 3) + Math.pow(eatenRad, 3), 1.0 / 3);
                                 // Ensure player always grows by at least the eaten cell's radius
@@ -390,8 +431,9 @@ public class GamePanel extends JPanel implements KeyListener {
             mainClass.mainPanel = new MainPanel(mainClass);
             mainClass.getContentPane().removeAll();
             mainClass.getContentPane().add(mainClass.mainPanel);
-            mainClass.mainPanel.requestFocusInWindow();
             mainClass.revalidate();
+            mainClass.repaint();
+            mainClass.mainPanel.requestFocusInWindow();
         });
         setLayout(null);
         add(restartButton);
@@ -695,8 +737,9 @@ public class GamePanel extends JPanel implements KeyListener {
                     mainClass.mainPanel = new MainPanel(mainClass);
                     mainClass.getContentPane().removeAll();
                     mainClass.getContentPane().add(mainClass.mainPanel);
-                    mainClass.mainPanel.requestFocusInWindow();
                     mainClass.revalidate();
+                    mainClass.repaint();
+                    mainClass.mainPanel.requestFocusInWindow();
                     break;
                 } else {
                     break;

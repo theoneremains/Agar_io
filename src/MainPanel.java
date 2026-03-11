@@ -21,6 +21,7 @@ public class MainPanel extends JPanel
     public MainPanel(final MainClass mainClass)
     {
         setSize(MainClass.SCREEN_WIDTH, MainClass.SCREEN_HEIGHT);
+        setPreferredSize(new Dimension(MainClass.SCREEN_WIDTH, MainClass.SCREEN_HEIGHT));
 
         setLayout(null);
 
@@ -64,8 +65,9 @@ public class MainPanel extends JPanel
             mainClass.gamePanel = new GamePanel(mainClass, npcCount);
             mainClass.getContentPane().removeAll();
             mainClass.getContentPane().add(mainClass.gamePanel);
-            mainClass.gamePanel.requestFocusInWindow();
             mainClass.revalidate();
+            mainClass.repaint();
+            mainClass.gamePanel.requestFocusInWindow();
         });
 
         optionsButton.addActionListener(arg0 -> {
@@ -73,8 +75,9 @@ public class MainPanel extends JPanel
             mainClass.optionsPanel = new OptionsPanel(mainClass);
             mainClass.getContentPane().removeAll();
             mainClass.getContentPane().add(mainClass.optionsPanel);
-            mainClass.optionsPanel.requestFocusInWindow();
             mainClass.revalidate();
+            mainClass.repaint();
+            mainClass.optionsPanel.requestFocusInWindow();
         });
         exitButton.addActionListener(e -> {
             click_sound.playSound();
