@@ -10,7 +10,7 @@ A Java Swing Agar.io clone developed as an AIU Hackathon group project.
 
 **Game concept:** The player controls a circular cell. Eating smaller cells increases the player's size and score. The goal is to achieve the highest score.
 
-**Current status:** Functional single-player game with smooth camera tracking, highscore, sound toggle, player color selection, toroidal world wrapping, random enemy sizes, smooth cell spawn animation, eat sound, animated gradient background, anti-aliased rendering, player name display, dynamic speed, no-overlap spawn, volume-based growth, and an in-game developer log.
+**Current status:** Functional game with NPC opponents, smooth camera tracking, highscore, sound toggle, player color selection, toroidal world wrapping, random enemy sizes, smooth cell spawn animation, eat sound, animated gradient background, anti-aliased rendering, player name display, dynamic speed (min 3), no-overlap spawn, volume-based growth, live scoreboard, game over screen with stats, and an in-game developer log.
 
 ---
 
@@ -40,6 +40,7 @@ Agar_io/
 │   ├── HUD.java            # Score + elapsed time tracking
 │   ├── OptionsPanel.java   # SOUND toggle + COLOR picker settings
 │   ├── Sound.java          # Audio playback wrapper (javax.sound.sampled)
+│   ├── NPC.java            # NPC entity — AI-controlled cells with names, scores, random movement
 │   ├── DevLogDialog.java   # Developer log window (Ctrl+I) — pauses game, editable world stats
 │   ├── agario.png          # Menu/options background image
 │   ├── background.png      # In-game background image (no longer used — background is procedural)
@@ -119,18 +120,22 @@ Note: Assets (`.png`, `.wav`) live in `src/` alongside Java files. The build scr
 
 ### `GamePanel.java`
 - Extends `JPanel`, implements `KeyListener`
+- **Constructor:** `GamePanel(MainClass mainClass, int npcCount)` — accepts the number of NPC players (minimum 3)
 - **Two daemon game threads:**
-  - `cellThread()` — spawns enemy cells up to max 30 across the world, random 0–12 second intervals; each cell starts with `spawnAlpha = 0f` for grow-in animation
-  - `runGameThread()` — main loop at 10ms tick (~100 FPS); updates player (toroidal wrap), advances `spawnAlpha`, camera lerp, collision, score, eat sound; skips all logic when `paused == true`
+  - `cellThread()` — spawns enemy food cells up to max 30 across the world, random 0–12 second intervals; each cell starts with `spawnAlpha = 0f` for grow-in animation; stops spawning when `gameOver`
+  - `runGameThread()` — main loop at 10ms tick (~100 FPS); updates player (toroidal wrap), NPC AI, advances `spawnAlpha`, camera lerp, collision (player↔food, player↔NPC, NPC↔food, NPC↔NPC, NPC↔player), score, eat sound; skips all logic when `paused == true` or `gameOver == true`
+- **NPC system:** `npcList` is a `CopyOnWriteArrayList<NPC>`; NPCs move randomly, eat food cells and smaller NPCs, can eat the player if bigger; each NPC tracks its own score
+- **Score:** increased by the eaten cell's radius (not +1); stored in `hud.score`; `highscore` updated whenever `hud.score > highscore`
+- **Scoreboard:** `getScoreboard()` returns a sorted list of player + all NPCs ranked by score; `drawScoreboard()` renders it in the top-right corner with the player's entry highlighted in yellow; dead NPCs shown greyed out with `[dead]` tag
 - **Camera:** `cameraX`/`cameraY` are `double` fields updated with 15% lerp each tick; wrap-snap (instant jump) when player crosses a world boundary; cast to `int` for `g2d.translate()`
-- **Rendering:** enemy cells drawn with `AlphaComposite` and scaled radius driven by `spawnAlpha`; full anti-aliasing (`RenderingHints.VALUE_ANTIALIAS_ON`) applied at top of `paintComponent`
-- **Score** stored in `hud.score`; `highscore` updated whenever `hud.score > highscore`
+- **Rendering:** enemy cells drawn with `AlphaComposite` and scaled radius driven by `spawnAlpha`; NPC cells drawn with names centered inside; full anti-aliasing (`RenderingHints.VALUE_ANTIALIAS_ON`) applied at top of `paintComponent`
 - **Player color:** `static Color playerColor` — set in Options, applied to playerCell on game start
 - **Player name:** `static String playerName` — set from the main menu name dialog before each game; rendered centered and font-size fitted inside the player cell (`fontSize = max(8, min(cellRad/2, 24))`)
-- **Dynamic speed:** `BASE_SPEED=7` at `INITIAL_RAD=18`; formula `max(MIN_SPEED=1, BASE_SPEED × INITIAL_RAD / cellRad)` applied every tick unless `devSpeedOverride` is true
+- **Dynamic speed:** `BASE_SPEED=7` at `INITIAL_RAD=18`; formula `max(MIN_SPEED=3, BASE_SPEED × INITIAL_RAD / cellRad)` applied every tick unless `devSpeedOverride` is true
 - **No-overlap spawn:** `generateNonOverlappingCell()` tries up to 50 positions; checks clearance against player and all existing cells before placing a new enemy
 - **Growth formula fallback:** if volume-based formula does not increase radius, player grows by `eatenRad` (not +1)
-- **Easter egg:** when `playerCell.cellRad > 400`, plays `coolMusic.wav` and resets timer
+- **Easter egg:** when all NPCs are dead, plays `coolMusic.wav` and resets timer; after ~20 seconds the music finishes and the game ends
+- **Game over:** `triggerGameOver()` sets `gameOver = true`, stops music, shows overlay with final standings and a RESTART button; triggered either when all NPCs die (after easter egg music) or when an NPC eats the player
 - `colors[]` is `static` so OptionsPanel can reference it for the color picker
 - **Enemy sizing:** `MIN_ENEMY_RAD = 8`, `MAX_ENEMY_RAD = 35`; helper `randomEnemyRadius()` caps at `playerCell.cellRad - 5`
 - **Developer log:** `paused` (`volatile boolean`), `devSpeedOverride` (`boolean`), `devLogDialog` reference; `toggleDevLog()` opens/closes `DevLogDialog`; Ctrl+I / Meta+I key binding in `keyPressed`
@@ -146,9 +151,18 @@ Note: Assets (`.png`, `.wav`) live in `src/` alongside Java files. The build scr
   - Only triggers if `playerRad > enemyRad + 4` (minimum 4-unit size advantage)
   - Center-to-center distance formula
 
+### `NPC.java`
+- Represents an AI-controlled cell with a name, score, and random movement
+- **Fields:** `cell` (Cell entity), `name` (String), `score` (int), `alive` (boolean)
+- **Movement AI:** randomizes direction flags every 30–100 ticks; moves via `cell.updateCellPos()`
+- **Speed:** uses same dynamic formula as player (`max(3, 7 × 18 / radius)`) via `updateSpeed()`
+- **Growth:** `grow(eatenRad)` applies volume-based growth with fallback, increments `score` by `eatenRad`
+- **Name pool:** 20 pre-defined names (Blob, Chomper, Nibbler, etc.); duplicates avoided via `usedNames` set
+- **Constructor:** `NPC(int cx, int cy, int radius, Set<String> usedNames)` — picks unique name, random color from `GamePanel.colors[]`
+
 ### `HUD.java`
 - Extends `JPanel` (though only used as a data class)
-- `score` — integer incremented on each eaten cell
+- `score` — integer increased by the eaten cell's radius on each eat
 - `elapsedTime` — milliseconds since `startTime`; reset by `resetTime()` on easter egg trigger
 
 ### `Background.java`
@@ -162,7 +176,7 @@ Note: Assets (`.png`, `.wav`) live in `src/` alongside Java files. The build scr
 ### `MainPanel.java`
 - Main menu with START, OPTIONS, EXIT buttons
 - Button clicks play `click.wav`
-- START shows a `JOptionPane.showInputDialog` for the player's name, stores it in `GamePanel.playerName`, then creates `new GamePanel(mainClass)` and swaps panels
+- START shows a `JOptionPane.showInputDialog` for the player's name, then another for NPC count (minimum 3, defaults to 3), stores values and creates `new GamePanel(mainClass, npcCount)` and swaps panels
 - `paintComponent` draws background image; `paint` calls `super.paint(g)` then overlays title and highscore text
 
 ### `DevLogDialog.java`
@@ -256,8 +270,8 @@ playerCell.cellRad = newRad;
 int dynSpeed = Math.max(MIN_SPEED, (int)(BASE_SPEED * (double) INITIAL_RAD / playerCell.cellRad));
 playerCell.speedX = dynSpeed;
 playerCell.speedY = dynSpeed;
-// BASE_SPEED=7, INITIAL_RAD=18, MIN_SPEED=1
-// e.g. rad=18 → speed=7, rad=36 → speed=3, rad=90 → speed=1 (min)
+// BASE_SPEED=7, INITIAL_RAD=18, MIN_SPEED=3
+// e.g. rad=18 → speed=7, rad=36 → speed=3 (min), rad=90 → speed=3 (min)
 ```
 
 ### No-overlap Spawn
@@ -273,7 +287,7 @@ for (int attempt = 0; attempt < 50; attempt++) {
 ```
 
 ### Thread Safety
-`celllist` is a `CopyOnWriteArrayList<Cell>` — safe for reads from the paint thread and concurrent writes from `cellThread` and `runGameThread`.
+`celllist` is a `CopyOnWriteArrayList<Cell>` — safe for reads from the paint thread and concurrent writes from `cellThread` and `runGameThread`. `npcList` is a `CopyOnWriteArrayList<NPC>` — same thread-safety guarantees for NPC entities.
 
 ### Enemy Cell Color Palette
 Use the existing static palette in `GamePanel.colors[]`:
@@ -296,7 +310,10 @@ public static Color[] colors = {BLACK, BLUE, CYAN, DARK_GRAY, GRAY, GREEN, LIGHT
 9. **Assets live in `src/`** alongside Java files — do not create a separate `resources/` directory without updating the build setup.
 10. **No external libraries** — the project has no dependency manager; do not add third-party JARs without establishing a build system first.
 11. **All game threads are daemon threads** — they terminate automatically when the JVM exits.
-12. **`paused` flag must be `volatile`** — it is written by the Swing EDT (key events, dialog close) and read by the game thread.
+12. **`paused` and `gameOver` flags must be `volatile`** — they are written by the Swing EDT (key events, dialog close, game end) and read by the game thread.
+13. **Score increases by eaten cell's radius** — `hud.score += eatenRad`, not `hud.score++`. NPCs also track score the same way.
+14. **NPC count minimum is 3** — enforced in `MainPanel` via `Math.max(3, ...)` on user input.
+15. **NPC names must be unique** — use a `Set<String>` of used names when spawning NPCs to avoid duplicates.
 
 ---
 

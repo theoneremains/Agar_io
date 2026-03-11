@@ -4,18 +4,20 @@ import java.awt.*;
 import java.awt.Color;
 import java.awt.event.KeyEvent;
 import java.awt.event.KeyListener;
-import java.util.Random;
+import java.util.*;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * GamePanel : Game runs here
  * It creates the user cell in the middle of the world and random cells in random places
  * Puts the randomcells in a thread-safe CopyOnWriteArrayList
- * When player cell eats a random cell its size is increased as well as the score
+ * When player cell eats a random cell its size is increased as well as the score (by eaten cell's radius)
  * Camera follows the player cell with smooth lerp, supporting toroidal world wrapping
  * Enemy cells have random sizes and appear with a smooth grow-in animation
  * Player name is displayed centered and fitted inside the player cell
- * Dynamic speed: faster when small, slower when large, never reaches zero
+ * Dynamic speed: faster when small, slower when large, minimum speed is 3
+ * NPC cells move randomly, eat smaller cells, and compete on the scoreboard
+ * Easter egg triggers when all NPCs are eliminated; game ends with stats display
  * Developer log (Ctrl+I / Cmd+I) pauses game and shows editable world state
  * @author Kamil Yunus Özkaya
  */
@@ -36,6 +38,9 @@ public class GamePanel extends JPanel implements KeyListener {
 
     public CopyOnWriteArrayList<Cell> celllist = new CopyOnWriteArrayList<>();
 
+    /** List of NPC entities that move, eat, and compete */
+    public CopyOnWriteArrayList<NPC> npcList = new CopyOnWriteArrayList<>();
+
     public boolean right, left, up, down;
 
     public Background background;
@@ -52,7 +57,7 @@ public class GamePanel extends JPanel implements KeyListener {
     // Dynamic speed constants
     private static final int BASE_SPEED       = 7;     // speed at initial radius
     private static final int INITIAL_RAD      = 18;    // player starting radius
-    private static final int MIN_SPEED        = 1;     // speed never drops below this
+    private static final int MIN_SPEED        = 3;     // speed never drops below this
 
     private Sound music = new Sound("coolMusic.wav", 1); // Easter egg music
 
@@ -65,18 +70,25 @@ public class GamePanel extends JPanel implements KeyListener {
     /** When true the game loop is paused (used by the developer log) */
     public volatile boolean paused = false;
 
+    /** When true the game has ended (all NPCs eliminated or player eaten) */
+    public volatile boolean gameOver = false;
+
     /** When true, skip automatic speed recalculation (dev override active) */
     public boolean devSpeedOverride = false;
 
     /** Reference to the developer log dialog (null when closed) */
     private DevLogDialog devLogDialog = null;
 
+    /** Number of NPC players in this game session */
+    private int npcCount;
+
     MainClass mainClass;
 
     // Creates the panel and runs the threads
-    public GamePanel(MainClass mainClass) {
+    public GamePanel(MainClass mainClass, int npcCount) {
 
         this.mainClass = mainClass;
+        this.npcCount = npcCount;
 
         setSize(MainClass.SCREEN_WIDTH, MainClass.SCREEN_HEIGHT);
 
@@ -100,9 +112,24 @@ public class GamePanel extends JPanel implements KeyListener {
         randomCell.cellColor = Color.BLUE;
         celllist.add(randomCell);
 
+        // Spawn NPC cells at non-overlapping positions
+        spawnNPCs();
+
         cellThread();
 
         runGameThread();
+    }
+
+    /** Spawns the configured number of NPC cells at non-overlapping world positions */
+    private void spawnNPCs() {
+        Set<String> usedNames = new HashSet<>();
+        usedNames.add(playerName);
+        for (int i = 0; i < npcCount; i++) {
+            int cx = SPAWN_BORDER + random.nextInt(MainClass.WORLD_WIDTH  - 2 * SPAWN_BORDER);
+            int cy = SPAWN_BORDER + random.nextInt(MainClass.WORLD_HEIGHT - 2 * SPAWN_BORDER);
+            NPC npc = new NPC(cx, cy, INITIAL_RAD, usedNames);
+            npcList.add(npc);
+        }
     }
 
     /** Returns a random enemy radius between MIN_ENEMY_RAD and MAX_ENEMY_RAD,
@@ -153,7 +180,7 @@ public class GamePanel extends JPanel implements KeyListener {
             @Override
             public void run() {
                 while (true) {
-                    if (celllist.size() < 30) {
+                    if (!gameOver && celllist.size() < 30) {
                         coloredCell = generateNonOverlappingCell();
                         coloredCell.cellColor = colors[random.nextInt(colors.length)];
                         // spawnAlpha starts at 0 — grow-in animation handled in runGameThread
@@ -161,7 +188,7 @@ public class GamePanel extends JPanel implements KeyListener {
                     }
                     repaint();
                     try {
-                        Thread.sleep(random.nextInt(12) * 1000); // 0–12 seconds between spawns
+                        Thread.sleep(random.nextInt(12) * 1000); // 0-12 seconds between spawns
                     } catch (InterruptedException e) {
                         e.printStackTrace();
                     }
@@ -178,8 +205,8 @@ public class GamePanel extends JPanel implements KeyListener {
             @Override
             public void run() {
                 while (true) {
-                    if (!paused) {
-                        // Dynamic speed: faster at small size, slower as player grows, never 0
+                    if (!paused && !gameOver) {
+                        // Dynamic speed: faster at small size, slower as player grows, min 3
                         if (!devSpeedOverride) {
                             int dynSpeed = Math.max(MIN_SPEED,
                                 (int)(BASE_SPEED * (double) INITIAL_RAD / playerCell.cellRad));
@@ -192,6 +219,11 @@ public class GamePanel extends JPanel implements KeyListener {
                         // Advance spawn animation for all enemy cells
                         for (Cell c : celllist) {
                             if (c.spawnAlpha < 1f) c.spawnAlpha = Math.min(1f, c.spawnAlpha + 0.05f);
+                        }
+
+                        // Update NPC positions and AI
+                        for (NPC npc : npcList) {
+                            if (npc.alive) npc.update();
                         }
 
                         // Smooth camera lerp — follows player center
@@ -209,11 +241,12 @@ public class GamePanel extends JPanel implements KeyListener {
 
                         hud.getElapsedTime(); // Each time thread executed, we get the elapsed time
 
+                        // Player eats food cells
                         for (int i = 0; i < celllist.size(); i++) {
                             if (playerCell.isCollision(playerCell, celllist.get(i))) { // Removes eaten cell, increases score
                                 // Save eaten cell radius BEFORE removing it from the list
                                 int eatenRad = celllist.get(i).cellRad;
-                                hud.score++;
+                                hud.score += eatenRad;
                                 if (hud.score > highscore) highscore = hud.score;
                                 celllist.remove(i);
                                 Sound.playEatSound(); // Soothing bloop feedback on eat
@@ -230,11 +263,81 @@ public class GamePanel extends JPanel implements KeyListener {
                             }
                         }
 
-                        // Surprise here ^^
-                        if (playerCell.cellRad > 400 && mus == 0) {
-                            hud.resetTime();
-                            mus++;
-                            music.playSound();
+                        // Player eats NPC cells (player bigger than NPC)
+                        for (NPC npc : npcList) {
+                            if (npc.alive && playerCell.isCollision(playerCell, npc.cell)) {
+                                int eatenRad = npc.cell.cellRad;
+                                hud.score += eatenRad;
+                                if (hud.score > highscore) highscore = hud.score;
+                                npc.alive = false;
+                                Sound.playEatSound();
+                                int newRad = (int) Math.pow(Math.pow(playerCell.cellRad, 3) + Math.pow(eatenRad, 3), 1.0 / 3);
+                                if (newRad <= playerCell.cellRad) newRad = playerCell.cellRad + eatenRad;
+                                playerCell.cellRad = newRad;
+                            }
+                        }
+
+                        // NPCs eat food cells
+                        for (NPC npc : npcList) {
+                            if (!npc.alive) continue;
+                            for (int i = 0; i < celllist.size(); i++) {
+                                if (i >= celllist.size()) break;
+                                Cell food = celllist.get(i);
+                                if (npc.cell.isCollision(npc.cell, food)) {
+                                    int eatenRad = food.cellRad;
+                                    celllist.remove(i);
+                                    npc.grow(eatenRad);
+                                    i--;
+                                }
+                            }
+                        }
+
+                        // NPCs eat other NPCs (bigger eats smaller)
+                        for (NPC predator : npcList) {
+                            if (!predator.alive) continue;
+                            for (NPC prey : npcList) {
+                                if (!prey.alive || predator == prey) continue;
+                                if (predator.cell.isCollision(predator.cell, prey.cell)) {
+                                    int eatenRad = prey.cell.cellRad;
+                                    prey.alive = false;
+                                    predator.grow(eatenRad);
+                                }
+                            }
+                        }
+
+                        // NPC eats the player (NPC bigger than player)
+                        for (NPC npc : npcList) {
+                            if (!npc.alive) continue;
+                            if (npc.cell.isCollision(npc.cell, playerCell)) {
+                                // Player is eaten — game over
+                                npc.grow(playerCell.cellRad);
+                                triggerGameOver();
+                                break;
+                            }
+                        }
+
+                        // Easter egg: when all NPCs are dead, play the sound and end the game
+                        if (!gameOver && mus == 0) {
+                            boolean allNpcsDead = true;
+                            for (NPC npc : npcList) {
+                                if (npc.alive) { allNpcsDead = false; break; }
+                            }
+                            if (allNpcsDead) {
+                                mus++;
+                                hud.resetTime();
+                                music.playSound();
+                                // Wait for music to finish (~20 seconds), then end the game
+                                Thread endThread = new Thread(() -> {
+                                    try {
+                                        Thread.sleep(20000);
+                                    } catch (InterruptedException e) {
+                                        e.printStackTrace();
+                                    }
+                                    triggerGameOver();
+                                });
+                                endThread.setDaemon(true);
+                                endThread.start();
+                            }
                         }
                     }
 
@@ -249,6 +352,52 @@ public class GamePanel extends JPanel implements KeyListener {
         };
         thread.setDaemon(true);
         thread.start();
+    }
+
+    /** Triggers the game over state and displays the end screen */
+    private void triggerGameOver() {
+        if (gameOver) return;
+        gameOver = true;
+        music.closeSound();
+        SwingUtilities.invokeLater(this::showGameOverScreen);
+    }
+
+    /** Shows the game over overlay with a restart button */
+    private void showGameOverScreen() {
+        JButton restartButton = new JButton("RESTART");
+        restartButton.setFont(new Font("Arial", Font.BOLD, 20));
+        restartButton.setBackground(new Color(40, 120, 60));
+        restartButton.setForeground(Color.WHITE);
+        restartButton.setFocusPainted(false);
+        int bw = MainClass.BUTTON_WIDTH + 40;
+        int bh = MainClass.BUTTON_HEIGHT + 10;
+        restartButton.setBounds((MainClass.SCREEN_WIDTH - bw) / 2,
+            MainClass.SCREEN_HEIGHT - 100, bw, bh);
+        restartButton.addActionListener(e -> {
+            mainClass.mainPanel = new MainPanel(mainClass);
+            mainClass.getContentPane().removeAll();
+            mainClass.getContentPane().add(mainClass.mainPanel);
+            mainClass.mainPanel.requestFocusInWindow();
+            mainClass.revalidate();
+        });
+        setLayout(null);
+        add(restartButton);
+        revalidate();
+        repaint();
+    }
+
+    /**
+     * Builds a sorted scoreboard of all players (human + NPCs), sorted by score descending.
+     * Each entry is: [name, score, alive status, isPlayer flag].
+     */
+    private java.util.List<Object[]> getScoreboard() {
+        java.util.List<Object[]> board = new ArrayList<>();
+        board.add(new Object[]{playerName, hud.score, true, true});
+        for (NPC npc : npcList) {
+            board.add(new Object[]{npc.name, npc.score, npc.alive, false});
+        }
+        board.sort((a, b) -> Integer.compare((int) b[1], (int) a[1]));
+        return board;
     }
 
     @Override
@@ -282,61 +431,188 @@ public class GamePanel extends JPanel implements KeyListener {
             g2d.setComposite(orig);
         }
 
-        playerCell.drawCell(g2d, playerCell.cellRad);
+        // Draw NPC cells with names
+        for (NPC npc : npcList) {
+            if (!npc.alive) continue;
+            npc.cell.drawCell(g2d, npc.cell.cellRad);
+            // Draw NPC name centered inside its cell
+            int fontSize = Math.max(8, Math.min(npc.cell.cellRad / 2, 24));
+            Font nameFont = new Font("Arial", Font.BOLD, fontSize);
+            g2d.setFont(nameFont);
+            FontMetrics fm = g2d.getFontMetrics();
+            int nameW = fm.stringWidth(npc.name);
+            int nameH = fm.getAscent();
+            int nameX = npc.cell.x + npc.cell.cellRad - nameW / 2;
+            int nameY = npc.cell.y + npc.cell.cellRad + nameH / 2 - 2;
+            g2d.setColor(Color.WHITE);
+            g2d.drawString(npc.name, nameX, nameY);
+        }
 
-        // Draw player name centered and font-size fitted inside the player cell
-        int fontSize = Math.max(8, Math.min(playerCell.cellRad / 2, 24));
-        Font nameFont = new Font("Arial", Font.BOLD, fontSize);
-        g2d.setFont(nameFont);
-        FontMetrics fm = g2d.getFontMetrics();
-        int nameW = fm.stringWidth(playerName);
-        int nameH = fm.getAscent();
-        int nameX = playerCell.x + playerCell.cellRad - nameW / 2;
-        int nameY = playerCell.y + playerCell.cellRad + nameH / 2 - 2;
-        g2d.setColor(Color.WHITE);
-        g2d.drawString(playerName, nameX, nameY);
+        // Draw player cell and name (always visible unless game over from being eaten)
+        if (!gameOver || mus > 0) {
+            playerCell.drawCell(g2d, playerCell.cellRad);
+
+            // Draw player name centered and font-size fitted inside the player cell
+            int fontSize = Math.max(8, Math.min(playerCell.cellRad / 2, 24));
+            Font nameFont = new Font("Arial", Font.BOLD, fontSize);
+            g2d.setFont(nameFont);
+            FontMetrics fm = g2d.getFontMetrics();
+            int nameW = fm.stringWidth(playerName);
+            int nameH = fm.getAscent();
+            int nameX = playerCell.x + playerCell.cellRad - nameW / 2;
+            int nameY = playerCell.y + playerCell.cellRad + nameH / 2 - 2;
+            g2d.setColor(Color.WHITE);
+            g2d.drawString(playerName, nameX, nameY);
+        }
 
         // Restore camera transform for screen-space HUD
         g2d.translate(camX, camY);
 
+        // Draw HUD: score and elapsed time
         g2d.setColor(Color.BLUE);
         g2d.setFont(new Font("", Font.PLAIN, 12));
         g2d.drawString("Score " + hud.score, 10, 20);
         g2d.drawString("Elapsed Time " + hud.elapsedTime / 1000, 490, 20);
 
-        if (hud.elapsedTime / 1000 > 5 && hud.elapsedTime / 1000 < 8 && mus != 0) {
-            g2d.setColor(Color.WHITE);
-            g2d.setFont(new Font("", Font.BOLD, 200));
-            g2d.drawString("TOO EASY???", 0, (MainClass.SCREEN_HEIGHT) / 2);
-        } else if (hud.elapsedTime / 1000 >= 8 && hud.elapsedTime / 1000 < 13 && mus != 0) {
-            g2d.setColor(Color.WHITE);
-            g2d.setFont(new Font("", Font.BOLD, 130));
-            g2d.drawString("YOU KNOW WHAT :)", 0, (MainClass.SCREEN_HEIGHT) / 2);
-        } else if (hud.elapsedTime / 1000 >= 14 && hud.elapsedTime / 1000 < 17 && mus != 0) {
-            g2d.setColor(Color.WHITE);
-            g2d.setFont(new Font("", Font.BOLD, 80));
-            g2d.drawString("FIRE IT LOUD", 0, (MainClass.SCREEN_HEIGHT) / 2);
-            g2d.drawString("ANOTHER ROUND OF SHOTS", 0, (MainClass.SCREEN_HEIGHT + 160) / 2);
-        } else if (hud.elapsedTime / 1000 > 17 && mus != 0) {
-            g2d.setColor(Color.WHITE);
-            g2d.setFont(new Font("", Font.BOLD, 150));
-            g2d.drawString("TURN DOWN FOR", 0, (MainClass.SCREEN_HEIGHT) / 2);
-            g2d.drawString("WHAT", 0, (MainClass.SCREEN_HEIGHT + 300) / 2);
-            g2d.setFont(new Font("", Font.BOLD, 50));
-            g2d.drawString("HA HA HA!", random.nextInt(MainClass.SCREEN_WIDTH), random.nextInt(MainClass.SCREEN_HEIGHT));
+        // Draw scoreboard in top-right corner
+        drawScoreboard(g2d);
+
+        // Easter egg text overlays (while music is playing before game over)
+        if (mus != 0 && !gameOver) {
+            long secs = hud.elapsedTime / 1000;
+            if (secs > 5 && secs < 8) {
+                g2d.setColor(Color.WHITE);
+                g2d.setFont(new Font("", Font.BOLD, 200));
+                g2d.drawString("TOO EASY???", 0, (MainClass.SCREEN_HEIGHT) / 2);
+            } else if (secs >= 8 && secs < 13) {
+                g2d.setColor(Color.WHITE);
+                g2d.setFont(new Font("", Font.BOLD, 130));
+                g2d.drawString("YOU KNOW WHAT :)", 0, (MainClass.SCREEN_HEIGHT) / 2);
+            } else if (secs >= 14 && secs < 17) {
+                g2d.setColor(Color.WHITE);
+                g2d.setFont(new Font("", Font.BOLD, 80));
+                g2d.drawString("FIRE IT LOUD", 0, (MainClass.SCREEN_HEIGHT) / 2);
+                g2d.drawString("ANOTHER ROUND OF SHOTS", 0, (MainClass.SCREEN_HEIGHT + 160) / 2);
+            } else if (secs > 17) {
+                g2d.setColor(Color.WHITE);
+                g2d.setFont(new Font("", Font.BOLD, 150));
+                g2d.drawString("TURN DOWN FOR", 0, (MainClass.SCREEN_HEIGHT) / 2);
+                g2d.drawString("WHAT", 0, (MainClass.SCREEN_HEIGHT + 300) / 2);
+                g2d.setFont(new Font("", Font.BOLD, 50));
+                g2d.drawString("HA HA HA!", random.nextInt(MainClass.SCREEN_WIDTH), random.nextInt(MainClass.SCREEN_HEIGHT));
+            }
         }
 
         // Draw paused overlay when dev log is open
-        if (paused) {
+        if (paused && !gameOver) {
             g2d.setColor(new Color(0, 0, 0, 100));
             g2d.fillRect(0, 0, MainClass.SCREEN_WIDTH, MainClass.SCREEN_HEIGHT);
             g2d.setColor(Color.YELLOW);
             g2d.setFont(new Font("Arial", Font.BOLD, 28));
-            String pauseMsg = "[ PAUSED — Dev Log Open ]";
+            String pauseMsg = "[ PAUSED \u2014 Dev Log Open ]";
             FontMetrics pfm = g2d.getFontMetrics();
             int px = (MainClass.SCREEN_WIDTH - pfm.stringWidth(pauseMsg)) / 2;
             g2d.drawString(pauseMsg, px, MainClass.SCREEN_HEIGHT / 2);
         }
+
+        // Draw game over overlay
+        if (gameOver) {
+            drawGameOverOverlay(g2d);
+        }
+    }
+
+    /** Draws the scoreboard in the top-right corner of the screen */
+    private void drawScoreboard(Graphics2D g2d) {
+        java.util.List<Object[]> board = getScoreboard();
+        int sbWidth = 200;
+        int lineHeight = 20;
+        int sbX = MainClass.SCREEN_WIDTH - sbWidth - 10;
+        int sbY = 10;
+
+        // Background
+        g2d.setColor(new Color(0, 0, 0, 140));
+        g2d.fillRoundRect(sbX - 5, sbY - 5, sbWidth + 10,
+            lineHeight * (board.size() + 1) + 15, 10, 10);
+
+        // Title
+        g2d.setFont(new Font("Arial", Font.BOLD, 14));
+        g2d.setColor(Color.YELLOW);
+        g2d.drawString("SCOREBOARD", sbX + 40, sbY + 14);
+
+        g2d.setFont(new Font("Arial", Font.PLAIN, 12));
+        int y = sbY + 14 + lineHeight;
+        int rank = 1;
+        for (Object[] entry : board) {
+            String name = (String) entry[0];
+            int score = (int) entry[1];
+            boolean alive = (boolean) entry[2];
+            boolean isPlayer = (boolean) entry[3];
+
+            if (isPlayer) {
+                // Highlight player's score
+                g2d.setColor(new Color(255, 255, 100));
+                g2d.setFont(new Font("Arial", Font.BOLD, 12));
+            } else {
+                g2d.setColor(alive ? Color.WHITE : new Color(150, 150, 150));
+                g2d.setFont(new Font("Arial", Font.PLAIN, 12));
+            }
+            String status = alive ? "" : " [dead]";
+            String line = rank + ". " + name + " - " + score + status;
+            g2d.drawString(line, sbX, y);
+            y += lineHeight;
+            rank++;
+        }
+    }
+
+    /** Draws the game over overlay with final stats */
+    private void drawGameOverOverlay(Graphics2D g2d) {
+        // Dark overlay
+        g2d.setColor(new Color(0, 0, 0, 180));
+        g2d.fillRect(0, 0, MainClass.SCREEN_WIDTH, MainClass.SCREEN_HEIGHT);
+
+        // Game Over title
+        g2d.setColor(Color.RED);
+        g2d.setFont(new Font("Arial", Font.BOLD, 64));
+        String title = "GAME OVER";
+        FontMetrics tfm = g2d.getFontMetrics();
+        int tx = (MainClass.SCREEN_WIDTH - tfm.stringWidth(title)) / 2;
+        g2d.drawString(title, tx, 120);
+
+        // Final stats
+        java.util.List<Object[]> board = getScoreboard();
+        g2d.setFont(new Font("Arial", Font.BOLD, 20));
+        g2d.setColor(Color.WHITE);
+        String subTitle = "Final Standings";
+        FontMetrics sfm = g2d.getFontMetrics();
+        g2d.drawString(subTitle, (MainClass.SCREEN_WIDTH - sfm.stringWidth(subTitle)) / 2, 170);
+
+        int y = 210;
+        int rank = 1;
+        for (Object[] entry : board) {
+            String name = (String) entry[0];
+            int score = (int) entry[1];
+            boolean isPlayer = (boolean) entry[3];
+
+            if (isPlayer) {
+                g2d.setColor(new Color(255, 255, 100));
+                g2d.setFont(new Font("Arial", Font.BOLD, 18));
+            } else {
+                g2d.setColor(Color.WHITE);
+                g2d.setFont(new Font("Arial", Font.PLAIN, 18));
+            }
+            String line = "#" + rank + "  " + name + "  \u2014  Score: " + score;
+            FontMetrics lfm = g2d.getFontMetrics();
+            g2d.drawString(line, (MainClass.SCREEN_WIDTH - lfm.stringWidth(line)) / 2, y);
+            y += 30;
+            rank++;
+        }
+
+        // Player's final time
+        g2d.setColor(new Color(180, 220, 255));
+        g2d.setFont(new Font("Arial", Font.PLAIN, 16));
+        String timeStr = "Time played: " + hud.elapsedTime / 1000 + " seconds";
+        FontMetrics fm2 = g2d.getFontMetrics();
+        g2d.drawString(timeStr, (MainClass.SCREEN_WIDTH - fm2.stringWidth(timeStr)) / 2, y + 20);
     }
 
     /**
@@ -364,6 +640,7 @@ public class GamePanel extends JPanel implements KeyListener {
 
     @Override
     public void keyPressed(KeyEvent e) {
+        if (gameOver) return;
         switch (e.getKeyCode()) {
             case KeyEvent.VK_RIGHT:
                 right = true;

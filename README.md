@@ -3,8 +3,8 @@ AIU Hackathon group project — Agar.io clone made with Java
 Group Members : Kamil Yunus Özkaya, Mert Efe Sevim, Ahmet Kurt
 
 ## How to Play
-You are a circular cell that can eat other cells smaller than you, and you get bigger. Score increases as player eats other cells.
-Aim is to get the highest score!
+You are a circular cell that can eat other cells smaller than you, and you get bigger. Score increases by the size of each eaten cell.
+Compete against NPC players who also move, eat, and grow. Eliminate all NPCs to win! Aim is to get the highest score!
 
 Controls: **WASD** or **Arrow Keys** to move, **ESC** to return to the main menu, **Ctrl+I** (or **Cmd+I** on macOS) to open the developer log.
 
@@ -16,7 +16,11 @@ Controls: **WASD** or **Arrow Keys** to move, **ESC** to return to the main menu
 - **Volume-based growth** — eating a cell always grows the player by at least the eaten cell's radius, never just 1 pixel
 - **Anti-aliased rendering** — all cells are drawn with `RenderingHints.VALUE_ANTIALIAS_ON` for smooth, round edges
 - **Player name** — enter your name before each game; it is displayed centered and font-size fitted inside your cell as it grows
-- **Dynamic player speed** — starts at 7 px/tick at radius 18; speed scales down as the player grows but never reaches zero (`max(1, 7 × 18 / radius)`)
+- **NPC opponents** — AI-controlled cells with random names that move around the world, eat food cells and each other, and compete on the scoreboard; choose the number of NPCs (minimum 3) when starting a game
+- **Live scoreboard** — top-right corner shows all players ranked by score; your entry is highlighted in yellow; dead NPCs shown greyed out
+- **Game over screen** — when all NPCs are eliminated (easter egg plays first) or when an NPC eats you, a game over overlay shows final standings, time played, and a RESTART button
+- **Score by size** — score increases by the eaten cell's radius, not just +1
+- **Dynamic player speed** — starts at 7 px/tick at radius 18; speed scales down as the player grows but never drops below 3 (`max(3, 7 × 18 / radius)`)
 - **Smooth cell spawn animation** — new enemy cells grow in over ~200 ms instead of appearing instantly
 - **Eat sound effect** — a short descending "bloop" tone plays each time a cell is consumed (generated programmatically, no extra audio file needed); respects the SOUND toggle
 - **Animated gradient background** — slowly shifting pastel colors with 12 drifting semi-transparent cell-like blobs replace the former static image
@@ -78,7 +82,7 @@ java -cp out/production/Agar_io MainClass
 ```
 
 ## Known Limitations
-- Single player only (no multiplayer)
+- No online multiplayer (NPCs provide local AI competition)
 
 If you see any errors or have an idea to improve the code, please make comments or open an issue.
 Enjoy!!!
