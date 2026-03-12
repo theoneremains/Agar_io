@@ -196,18 +196,18 @@ public class OptionsPanel extends JPanel {
                 if (w >= 800 && h >= 600) {
                     MainClass.WORLD_WIDTH = w;
                     MainClass.WORLD_HEIGHT = h;
-                    JOptionPane.showMessageDialog(mainClass,
-                        "World size set to " + w + " x " + h + ".\nChanges apply to the next game.",
-                        "World Size Updated", JOptionPane.INFORMATION_MESSAGE);
+                    StyledDialog.showMessageDialog(mainClass,
+                        "World size set to " + w + " x " + h + ".<br>Changes apply to the next game.",
+                        "World Size Updated", false);
                 } else {
-                    JOptionPane.showMessageDialog(mainClass,
+                    StyledDialog.showMessageDialog(mainClass,
                         "Minimum world size is 800 x 600.",
-                        "Invalid Size", JOptionPane.WARNING_MESSAGE);
+                        "Invalid Size", true);
                 }
             } catch (NumberFormatException ex) {
-                JOptionPane.showMessageDialog(mainClass,
+                StyledDialog.showMessageDialog(mainClass,
                     "Please enter valid numbers for width and height.",
-                    "Invalid Input", JOptionPane.WARNING_MESSAGE);
+                    "Invalid Input", true);
             }
         });
 
@@ -220,19 +220,19 @@ public class OptionsPanel extends JPanel {
                     GamePanel.cellDensity = d;
                     double worldArea = (double) MainClass.WORLD_WIDTH * MainClass.WORLD_HEIGHT / 1_000_000.0;
                     int maxCells = Math.max(5, (int) Math.round(d * worldArea));
-                    JOptionPane.showMessageDialog(mainClass,
-                        "Cell density set to " + String.format("%.2f", d) + " cells/M px.\n" +
+                    StyledDialog.showMessageDialog(mainClass,
+                        "Cell density set to " + String.format("%.2f", d) + " cells/M px.<br>" +
                         "Max food cells for current world: " + maxCells,
-                        "Cell Density Updated", JOptionPane.INFORMATION_MESSAGE);
+                        "Cell Density Updated", false);
                 } else {
-                    JOptionPane.showMessageDialog(mainClass,
+                    StyledDialog.showMessageDialog(mainClass,
                         "Density must be a positive number.",
-                        "Invalid Density", JOptionPane.WARNING_MESSAGE);
+                        "Invalid Density", true);
                 }
             } catch (NumberFormatException ex) {
-                JOptionPane.showMessageDialog(mainClass,
+                StyledDialog.showMessageDialog(mainClass,
                     "Please enter a valid number for density.",
-                    "Invalid Input", JOptionPane.WARNING_MESSAGE);
+                    "Invalid Input", true);
             }
         });
 

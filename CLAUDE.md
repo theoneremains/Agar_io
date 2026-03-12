@@ -10,7 +10,7 @@ A Java Swing Agar.io clone developed as an AIU Hackathon group project.
 
 **Game concept:** The player controls a circular cell. Eating smaller cells increases the player's size and score. The goal is to achieve the highest score.
 
-**Current status:** Functional game with intelligent NPC opponents (navigation AI with error/jitter — flee bigger, chase smaller, roam when idle), smooth camera tracking, highscore, sound toggle, player color selection, fullscreen mode (default), configurable world dimensions, configurable cell density (default 200 cells/M px), toroidal world wrapping, three-tier food cell categories (Small/Medium/Large), smooth cell spawn animation, eat particle effects, division contact animations, bounce contact effects, ambient menu/game sounds, modernized UI with styled buttons (hover/press animations), animated gradient menu backgrounds, fixed speed (3), no-overlap spawn, area-based growth (`r3 = sqrt(r1² + r2²)`), radius-based scoring, double-precision cell radii, live scoreboard, game over screen with stats, and an in-game developer log.
+**Current status:** Functional game with intelligent NPC opponents (navigation AI with difficulty levels EASY/MEDIUM/HARD — flee bigger, chase smaller, roam when idle), smooth camera tracking, highscore, sound toggle, player color selection, fullscreen mode (default), configurable world dimensions, configurable cell density (default 200 cells/M px), toroidal world wrapping, three-tier food cell categories (Small/Medium/Large), smooth cell spawn animation, eat particle effects, division contact animations (with 3x radius separation distance), bounce contact effects, ambient menu music (A major pad) and evolving game ambient (pentatonic chord progression), modernized UI with styled buttons (hover/press animations) and styled dialogs (replacing JOptionPane), animated gradient menu backgrounds, fixed speed (3), no-overlap spawn, area-based growth (`r3 = sqrt(r1² + r2²)`), 10x-radius scoring, double-precision cell radii, live scoreboard with difficulty tags, game over screen with stats, and an in-game developer log.
 
 ---
 
@@ -40,12 +40,13 @@ Agar_io/
 │   ├── HUD.java            # Score + elapsed time tracking
 │   ├── OptionsPanel.java   # SOUND toggle + COLOR picker settings
 │   ├── Sound.java          # Audio playback wrapper (javax.sound.sampled)
-│   ├── NPC.java            # NPC entity — AI-controlled cells with names, scores, random movement
+│   ├── NPC.java            # NPC entity — AI-controlled cells with names, scores, difficulty levels
 │   ├── DevLogDialog.java   # Developer log window (Ctrl+I) — pauses game, editable world stats
 │   ├── DivisionEffect.java # Division split animation with bezier curves
 │   ├── EatEffect.java      # Particle burst animation when a cell is eaten
 │   ├── ContactEffect.java  # Curvy ripple animation at cell contact points
 │   ├── StyledButton.java   # Modern animated button with hover/press effects
+│   ├── StyledDialog.java   # Modern dark-themed dialog replacements for JOptionPane
 │   ├── agario.png          # Menu/options background image (no longer used — backgrounds are procedural)
 │   ├── background.png      # In-game background image (no longer used — background is procedural)
 │   ├── coolMusic.wav       # Easter egg audio
@@ -137,8 +138,8 @@ Note: Assets (`.png`, `.wav`) live in `src/` alongside Java files. The build scr
   - **Large** (3%): radius 5–10
   - Food cells cannot move, cannot eat other cells, cannot spawn on top of any other cell
 - **NPC system:** `npcList` is a `CopyOnWriteArrayList<NPC>`; NPCs use navigation AI (flee bigger, chase smaller), eat food cells and smaller NPCs, can eat the player if bigger; each NPC tracks its own score
-- **Score:** based on cell's current radius — `hud.score = ceil(playerCell.cellRad)`; NPC scores similarly set to `ceil(cell.cellRad)`; on death/division, score is frozen at the cell's radius at that moment; `highscore` updated whenever `hud.score > highscore`
-- **Scoreboard:** `getScoreboard()` returns a sorted list of player + all NPCs ranked by score; `drawScoreboard()` renders it in the top-right corner with the player's entry highlighted in yellow; dead NPCs shown greyed out with `[dead]` tag
+- **Score:** 10x cell radius — `hud.score = ceil(playerCell.cellRad * 10)`; NPC scores similarly set to `ceil(cell.cellRad * 10)`; on death/division, score is frozen; `highscore` updated whenever `hud.score > highscore`
+- **Scoreboard:** `getScoreboard()` returns a sorted list of player + all NPCs ranked by score; NPC names include difficulty tags [E]/[M]/[H]; `drawScoreboard()` renders it in the top-right corner with the player's entry highlighted in yellow; dead NPCs shown greyed out with `[dead]` tag
 - **Camera:** `cameraX`/`cameraY` are `double` fields updated with 15% lerp each tick; wrap-snap (instant jump) when player crosses a world boundary; cast to `int` for `g2d.translate()`
 - **Rendering:** enemy cells drawn with `AlphaComposite` and scaled radius driven by `spawnAlpha`; NPC cells drawn with names centered inside; full anti-aliasing (`RenderingHints.VALUE_ANTIALIAS_ON`) applied at top of `paintComponent`; eat particle effects (`EatEffect`), contact ripple effects (`ContactEffect`), and division animations (`DivisionEffect`) are all rendered in world space
 - **Ambient sound:** `gameAmbientLine` plays a soothing deep-tone drone during gameplay; stopped on game over or menu return
@@ -165,23 +166,37 @@ Note: Assets (`.png`, `.wav`) live in `src/` alongside Java files. The build scr
   - Center-to-center distance formula
 
 ### `NPC.java`
-- Represents an AI-controlled cell with a name, score, and intelligent navigation
-- **Fields:** `cell` (Cell entity), `name` (String), `score` (int), `alive` (boolean)
-- **Navigation AI:** `update(playerCell, npcList, foodList)` calls `navigate()` which scans all nearby entities within `VISION_RANGE = 400` pixels:
+- Represents an AI-controlled cell with a name, score, difficulty level, and intelligent navigation
+- **Difficulty enum:** `NPC.Difficulty` with three levels (EASY, MEDIUM, HARD), each defining:
+  - `errorChance` — chance per tick to ignore navigation (EASY 15%, MEDIUM 6%, HARD 2%)
+  - `steerJitter` — angular jitter in radians (EASY 0.70, MEDIUM 0.35, HARD 0.15)
+  - `moodChangeChance` — chance per tick to become distracted (EASY 1%, MEDIUM 0.4%, HARD 0.1%)
+  - `foodWeight` — food chase weight multiplier (EASY 0.8, MEDIUM 1.5, HARD 2.5)
+  - `visionRange` — how far the NPC can see (EASY 300, MEDIUM 450, HARD 600)
+- **Fields:** `cell` (Cell entity), `name` (String), `score` (int), `alive` (boolean), `difficulty` (Difficulty)
+- **Navigation AI:** `update(playerCell, npcList, foodList)` calls `navigate()` which scans nearby entities within `difficulty.visionRange`:
   - **Flee** from cells bigger than this NPC (player, other NPCs) — stronger force when closer (weight 3.0); fleeing always works even when distracted
-  - **Chase** cells smaller than this NPC — player (weight 2.0), other NPCs (weight 1.5), food cells (weight 1.0); chasing is disabled when NPC is in "distracted" mood
-  - Steering vector has angular jitter (`STEER_JITTER = 0.45` radians) added each tick for less robotic movement
-  - **Error chance:** 8% per tick (`ERROR_CHANCE = 0.08`) the NPC ignores navigation and moves randomly
-  - **Mood swings:** 0.5% per tick (`MOOD_CHANGE_CHANCE = 0.005`) the NPC becomes "distracted" for 60–180 ticks, during which it will not chase prey but will still flee threats
-  - **Roaming:** when nothing is in vision range, the NPC picks a random world target and steers towards it (with jitter), picking new targets upon arrival or timeout; this replaces the old random direction changes
+  - **Chase** cells smaller than this NPC — player (weight 2.5), other NPCs (weight 2.0), food cells (weight `difficulty.foodWeight`); chasing is disabled when NPC is in "distracted" mood
+  - Steering vector has angular jitter (`difficulty.steerJitter` radians) added each tick for less robotic movement
+  - **Error chance:** `difficulty.errorChance` per tick the NPC ignores navigation and moves randomly
+  - **Mood swings:** `difficulty.moodChangeChance` per tick the NPC becomes "distracted" for 60–180 ticks, during which it will not chase prey but will still flee threats
+  - **Roaming:** when nothing is in vision range, the NPC picks a random world target and steers towards it (with jitter), picking new targets upon arrival or timeout
 - **Speed:** fixed at `DEFAULT_SPEED = 3` via `updateSpeed()` — no size scaling
-- **Growth:** `grow(eatenRad)` applies area-based growth (`r3 = sqrt(r1² + r2²)`), sets `score = ceil(newRad)` (radius-based)
+- **Growth:** `grow(eatenRad)` applies area-based growth (`r3 = sqrt(r1² + r2²)`), sets `score = ceil(newRad * 10)` (10x-radius scoring)
 - **Name pool:** 20 pre-defined names (Blob, Chomper, Nibbler, etc.); duplicates avoided via `usedNames` set
-- **Constructor:** `NPC(int cx, int cy, double radius, Set<String> usedNames)` — picks unique name, random color from `GamePanel.colors[]`
+- **Constructor:** `NPC(int cx, int cy, double radius, Set<String> usedNames, Difficulty difficulty)` — picks unique name, random color, stores difficulty
+
+### `StyledDialog.java`
+- Static utility class replacing all `JOptionPane` calls with modern dark-themed dialogs
+- **`showInputDialog(parent, message, defaultValue)`** — modal input dialog with styled text field; returns entered text or null
+- **`showConfirmDialog(parent, message, title)`** — modal Yes/No dialog; returns boolean
+- **`showMessageDialog(parent, message, title, isWarning)`** — modal info/warning dialog with styled OK button
+- All dialogs use undecorated windows with rounded panels, dark backgrounds, and StyledButton instances
+- Keyboard shortcuts: Enter to confirm, Escape to cancel
 
 ### `HUD.java`
 - Extends `JPanel` (though only used as a data class)
-- `score` — integer reflecting the player cell's current radius (`ceil(cellRad)`)
+- `score` — integer reflecting 10x the player cell's current radius (`ceil(cellRad * 10)`)
 - `elapsedTime` — milliseconds since `startTime`; reset by `resetTime()` on easter egg trigger
 
 ### `Background.java`
@@ -220,7 +235,7 @@ Note: Assets (`.png`, `.wav`) live in `src/` alongside Java files. The build scr
 - Stop: `sound.closeSound()`
 - `static void playEatSound()` — 150 ms descending sine sweep (600 → 200 Hz); programmatic, no .wav needed
 - `static SourceDataLine playMenuAmbient()` — soothing A major chord pad with slow breathing modulation; returns the audio line (stop/close to end)
-- `static SourceDataLine playGameAmbient()` — deep warm ambient drone (A2/E3/A3) for in-game atmosphere
+- `static SourceDataLine playGameAmbient()` — evolving pentatonic chord progression (C-G-C4, D-A-D4, E-B-E4 cycle) with harmonic layering and breathing modulation for in-game atmosphere
 - `static void playDivisionSound()` — rising dual-tone (200 ms) for cell division events
 - `static void playBounceSound()` — short bouncy wobble tone (100 ms) when touching an uneatable cell
 - `static void playClickSound()` — crisp descending click tone (60 ms) for UI button interactions
@@ -319,7 +334,7 @@ celllist.remove(i);
 // Area-based: r3 = sqrt(r1^2 + r2^2) — total area is conserved
 double newRad = Math.sqrt(playerCell.cellRad * playerCell.cellRad + eatenRad * eatenRad);
 playerCell.cellRad = newRad;
-// Score = current radius: hud.score = (int) Math.ceil(playerCell.cellRad);
+// Score = 10x radius: hud.score = (int) Math.ceil(playerCell.cellRad * 10);
 ```
 
 ### Fixed Speed
@@ -369,7 +384,7 @@ public static Color[] colors = {BLACK, BLUE, CYAN, DARK_GRAY, GRAY, GREEN, LIGHT
 10. **No external libraries** — the project has no dependency manager; do not add third-party JARs without establishing a build system first.
 11. **All game threads are daemon threads** — they terminate automatically when the JVM exits.
 12. **`paused` and `gameOver` flags must be `volatile`** — they are written by the Swing EDT (key events, dialog close, game end) and read by the game thread.
-13. **Score equals current radius** — `hud.score = (int) Math.ceil(playerCell.cellRad)`. NPCs also set `score = ceil(cell.cellRad)`. On death/division, score is frozen at the radius at that moment.
+13. **Score equals 10x radius** — `hud.score = (int) Math.ceil(playerCell.cellRad * 10)`. NPCs also set `score = ceil(cell.cellRad * 10)`. On death/division, score is frozen at the radius at that moment.
 14. **NPC count minimum is 3** — enforced in `MainPanel` via `Math.max(3, ...)` on user input.
 15. **NPC names must be unique** — use a `Set<String>` of used names when spawning NPCs to avoid duplicates.
 16. **NPC `update()` requires navigation context** — always call `npc.update(playerCell, npcList, celllist)` with player, NPC list, and food list so navigation AI can detect threats and prey.
@@ -380,12 +395,16 @@ public static Color[] colors = {BLACK, BLUE, CYAN, DARK_GRAY, GRAY, GREEN, LIGHT
 21. **All panels must set `setPreferredSize()`** — in addition to `setSize()`, panels must set preferred size to `(SCREEN_WIDTH, SCREEN_HEIGHT)` for proper layout in the content pane.
 22. **Food cells are immutable** — food cells cannot move, cannot eat other cells, and their category distribution (Small 90% / Medium 7% / Large 3%) cannot be changed in-game. Density is configurable.
 24. **All cell radii are `double`** — `cellRad`, `x`, `y`, `speedX`, `speedY` are all `double` in `Cell.java`; cast to `int` only for rendering (`Math.round()` for `drawCell`/`fillOval`).
-23. **NPC AI has intentional imperfection** — `ERROR_CHANCE` (8%), `STEER_JITTER` (0.45 rad), and `MOOD_CHANGE_CHANCE` (0.5%) parameters make NPCs behave less robotically; do not remove these without team agreement.
+23. **NPC AI has difficulty-based imperfection** — `errorChance`, `steerJitter`, and `moodChangeChance` are per-difficulty instance fields in `NPC.Difficulty` enum; EASY is most imprecise, HARD is most precise; do not remove these without team agreement.
 25. **Use `StyledButton` for all buttons** — never use plain `JButton` in UI panels; `StyledButton` provides consistent modern look with hover/press animations.
 26. **Fixed speed for all cells** — `DEFAULT_SPEED = 3` for both player and NPCs; dev log speed override is preserved for debugging but dynamic speed scaling has been removed.
 27. **Visual effects use `CopyOnWriteArrayList`** — `eatEffects`, `contactEffects`, and `divisionEffects` are thread-safe lists updated in the game thread and drawn in `paintComponent`.
 28. **Ambient sounds return `SourceDataLine`** — callers must call `stop()`/`close()` on the returned line when leaving the panel or ending the game to avoid audio resource leaks.
 29. **Menu panels use animated backgrounds** — `MainPanel` and `OptionsPanel` use Swing `Timer` at 30ms for gradient animation; timer must be stopped when navigating away.
+30. **Use `StyledDialog` instead of `JOptionPane`** — all user-facing dialogs (input, confirm, message) must use `StyledDialog` static methods for consistent dark-themed UI.
+31. **NPC difficulty is assigned round-robin** — when spawning NPCs, cycle EASY → MEDIUM → HARD equally; difficulty affects error rate, vision, jitter, mood, and food aggression.
+32. **Division distance is 3x original radius** — `moveDist = origRad * 3` in all divide methods, giving divided cells room to escape the divider.
+33. **Game ambient sound is an evolving chord progression** — `playGameAmbient()` cycles through pentatonic chords (C, D, E patterns) with crossfading; distinct from the menu's static A major pad.
 
 ---
 
