@@ -57,12 +57,12 @@ public class MainPanel extends JPanel
         startButton.addActionListener(arg0 -> {
             Sound.playClickSound();
             // Ask the player for a name before starting the game
-            String name = JOptionPane.showInputDialog(mainClass, "Enter your name:", "Player");
+            String name = StyledDialog.showInputDialog(mainClass, "Enter your name:", "Player");
             if (name == null || name.trim().isEmpty()) name = "Player";
             GamePanel.playerName = name.trim();
 
             // Ask for NPC count (minimum 3)
-            String npcInput = JOptionPane.showInputDialog(mainClass,
+            String npcInput = StyledDialog.showInputDialog(mainClass,
                 "Number of NPC players (minimum 3):", "3");
             int npcCount = 3;
             if (npcInput != null) {
@@ -92,9 +92,9 @@ public class MainPanel extends JPanel
         });
         exitButton.addActionListener(e -> {
             Sound.playClickSound();
-            int confirmed = JOptionPane.showConfirmDialog(null, "Are you sure you want to exit the program?",
-                    "Exit Program Message Box", JOptionPane.YES_NO_OPTION);
-            if (confirmed == JOptionPane.YES_OPTION) {
+            boolean confirmed = StyledDialog.showConfirmDialog(mainClass,
+                    "Are you sure you want to exit the program?", "Exit Program");
+            if (confirmed) {
                 stopAmbient();
                 System.exit(0);
             }

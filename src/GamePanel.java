@@ -168,14 +168,17 @@ public class GamePanel extends JPanel implements KeyListener {
         gameAmbientLine = Sound.playGameAmbient();
     }
 
-    /** Spawns the configured number of NPC cells at non-overlapping world positions */
+    /** Spawns the configured number of NPC cells at non-overlapping world positions.
+     *  Difficulty is assigned in round-robin: EASY, MEDIUM, HARD, EASY, MEDIUM, HARD, ... */
     private void spawnNPCs() {
         Set<String> usedNames = new HashSet<>();
         usedNames.add(playerName);
+        NPC.Difficulty[] difficulties = NPC.Difficulty.values();
         for (int i = 0; i < npcCount; i++) {
             int cx = SPAWN_BORDER + random.nextInt(MainClass.WORLD_WIDTH  - 2 * SPAWN_BORDER);
             int cy = SPAWN_BORDER + random.nextInt(MainClass.WORLD_HEIGHT - 2 * SPAWN_BORDER);
-            NPC npc = new NPC(cx, cy, INITIAL_RAD, usedNames);
+            NPC.Difficulty diff = difficulties[i % difficulties.length];
+            NPC npc = new NPC(cx, cy, INITIAL_RAD, usedNames, diff);
             npcList.add(npc);
         }
     }
@@ -352,8 +355,8 @@ public class GamePanel extends JPanel implements KeyListener {
                                 eatEffects.add(new EatEffect(eatCX, eatCY, eatenRad, eatColor));
                                 double newRad = Math.sqrt(playerCell.cellRad * playerCell.cellRad + eatenRad * eatenRad);
                                 playerCell.cellRad = newRad;
-                                // Score = current radius (updated after growth)
-                                hud.score = (int) Math.ceil(playerCell.cellRad);
+                                // Score = 10x current radius (updated after growth)
+                                hud.score = (int) Math.ceil(playerCell.cellRad * 10);
                                 if (hud.score > highscore) highscore = hud.score;
                             }
                         }
@@ -365,12 +368,12 @@ public class GamePanel extends JPanel implements KeyListener {
                                 double eatCX = npc.cell.x + eatenRad;
                                 double eatCY = npc.cell.y + eatenRad;
                                 npc.alive = false;
-                                npc.score = (int) Math.ceil(npc.cell.cellRad); // final score = radius at death
+                                npc.score = (int) Math.ceil(npc.cell.cellRad * 10); // final score = 10x radius at death
                                 Sound.playEatSound();
                                 eatEffects.add(new EatEffect(eatCX, eatCY, eatenRad, npc.cell.cellColor));
                                 double newRad = Math.sqrt(playerCell.cellRad * playerCell.cellRad + eatenRad * eatenRad);
                                 playerCell.cellRad = newRad;
-                                hud.score = (int) Math.ceil(playerCell.cellRad);
+                                hud.score = (int) Math.ceil(playerCell.cellRad * 10);
                                 if (hud.score > highscore) highscore = hud.score;
                             }
                         }
@@ -404,7 +407,7 @@ public class GamePanel extends JPanel implements KeyListener {
                                     double eatCX = prey.cell.x + eatenRad;
                                     double eatCY = prey.cell.y + eatenRad;
                                     prey.alive = false;
-                                    prey.score = (int) Math.ceil(prey.cell.cellRad);
+                                    prey.score = (int) Math.ceil(prey.cell.cellRad * 10);
                                     predator.grow(eatenRad);
                                     eatEffects.add(new EatEffect(eatCX, eatCY, eatenRad, prey.cell.cellColor));
                                 }
@@ -415,8 +418,8 @@ public class GamePanel extends JPanel implements KeyListener {
                         for (NPC npc : npcList) {
                             if (!npc.alive) continue;
                             if (npc.cell.isCollision(npc.cell, playerCell)) {
-                                // Player is eaten — set final score = radius, game over
-                                hud.score = (int) Math.ceil(playerCell.cellRad);
+                                // Player is eaten — set final score = 10x radius, game over
+                                hud.score = (int) Math.ceil(playerCell.cellRad * 10);
                                 npc.grow((double) playerCell.cellRad);
                                 eatEffects.add(new EatEffect(
                                     playerCell.x + playerCell.cellRad, playerCell.y + playerCell.cellRad,
@@ -651,15 +654,17 @@ public class GamePanel extends JPanel implements KeyListener {
      */
     private java.util.List<Object[]> getScoreboard() {
         java.util.List<Object[]> board = new ArrayList<>();
-        // Player score = current radius
-        int playerScore = gameOver ? hud.score : (int) Math.ceil(playerCell.cellRad);
+        // Player score = 10x current radius
+        int playerScore = gameOver ? hud.score : (int) Math.ceil(playerCell.cellRad * 10);
         hud.score = playerScore;
         if (playerScore > highscore) highscore = playerScore;
         board.add(new Object[]{playerName, playerScore, true, true});
         for (NPC npc : npcList) {
             // NPC score = current radius if alive, frozen at last radius if dead
-            if (npc.alive) npc.score = (int) Math.ceil(npc.cell.cellRad);
-            board.add(new Object[]{npc.name, npc.score, npc.alive, false});
+            if (npc.alive) npc.score = (int) Math.ceil(npc.cell.cellRad * 10);
+            String diffTag = npc.difficulty == NPC.Difficulty.EASY ? "[E]"
+                           : npc.difficulty == NPC.Difficulty.MEDIUM ? "[M]" : "[H]";
+            board.add(new Object[]{npc.name + " " + diffTag, npc.score, npc.alive, false});
         }
         board.sort((a, b) -> Integer.compare((int) b[1], (int) a[1]));
         return board;
@@ -929,7 +934,7 @@ public class GamePanel extends JPanel implements KeyListener {
 
         double contactAngle = Math.atan2(foodCY - attackCY, foodCX - attackCX);
         double divAngle = contactAngle + Math.PI / 2;
-        double moveDist = origRad;
+        double moveDist = origRad * 3; // 3x radius for escape room after division
 
         double posAX = foodCX + Math.cos(divAngle) * moveDist;
         double posAY = foodCY + Math.sin(divAngle) * moveDist;
@@ -962,7 +967,7 @@ public class GamePanel extends JPanel implements KeyListener {
 
         double contactAngle = Math.atan2(cellCY - attackCY, cellCX - attackCX);
         double divAngle = contactAngle + Math.PI / 2;
-        double moveDist = origRad;
+        double moveDist = origRad * 3; // 3x radius for escape room after division
 
         double posAX = cellCX + Math.cos(divAngle) * moveDist;
         double posAY = cellCY + Math.sin(divAngle) * moveDist;
@@ -982,7 +987,7 @@ public class GamePanel extends JPanel implements KeyListener {
         targetCell.y = safeY - newRad;
         if (targetNpc != null) {
             targetNpc.updateSpeed();
-            targetNpc.score = (int) Math.ceil(newRad); // score = current radius after division
+            targetNpc.score = (int) Math.ceil(newRad * 10); // score = 10x radius after division
         }
 
         Cell foodHalf = new Cell((int) dangerX, (int) dangerY, newRad);
@@ -1004,7 +1009,7 @@ public class GamePanel extends JPanel implements KeyListener {
 
         double contactAngle = Math.atan2(cellCY - attackCY, cellCX - attackCX);
         double divAngle = contactAngle + Math.PI / 2;
-        double moveDist = origRad;
+        double moveDist = origRad * 3; // 3x radius for escape room after division
 
         double posAX = cellCX + Math.cos(divAngle) * moveDist;
         double posAY = cellCY + Math.sin(divAngle) * moveDist;
@@ -1022,8 +1027,8 @@ public class GamePanel extends JPanel implements KeyListener {
         playerCell.cellRad = newRad;
         playerCell.x = safeX - newRad;
         playerCell.y = safeY - newRad;
-        // Score = current radius after division
-        hud.score = (int) Math.ceil(newRad);
+        // Score = 10x radius after division
+        hud.score = (int) Math.ceil(newRad * 10);
 
         Cell foodHalf = new Cell((int) dangerX, (int) dangerY, newRad);
         foodHalf.cellColor = playerCell.cellColor;
@@ -1121,9 +1126,9 @@ public class GamePanel extends JPanel implements KeyListener {
                 }
                 break;
             case KeyEvent.VK_ESCAPE:
-                int confirmed = JOptionPane.showConfirmDialog(null, "Are you sure you want to return back to Menu?",
-                        "Exit Program Message Box", JOptionPane.YES_NO_OPTION);
-                if (confirmed == JOptionPane.YES_OPTION) {
+                boolean confirmed = StyledDialog.showConfirmDialog(mainClass,
+                        "Are you sure you want to return back to Menu?", "Return to Menu");
+                if (confirmed) {
                     if (devLogDialog != null) { devLogDialog.dispose(); devLogDialog = null; }
                     paused = false;
                     if (gameAmbientLine != null) {

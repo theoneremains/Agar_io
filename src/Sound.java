@@ -167,8 +167,10 @@ public class Sound {
     }
 
     /**
-     * playGameAmbient : Generates a subtle background ambient drone for in-game atmosphere.
-     * Lower-pitched with gentle pulsing. Runs on a daemon thread.
+     * playGameAmbient : Generates a soothing, evolving ambient soundscape for in-game atmosphere.
+     * Features slowly cycling pentatonic chords with gentle modulation and harmonic layering.
+     * Distinct from the menu ambient — warmer, more spacious, with subtle chord progression.
+     * Runs on a daemon thread.
      * @return the SourceDataLine (call stop()/close() to end), or null if sound is off
      */
     public static javax.sound.sampled.SourceDataLine playGameAmbient() {
@@ -182,16 +184,40 @@ public class Sound {
                 int sampleRate = 44100;
                 long sample = 0;
                 byte[] buf = new byte[4410];
+                // Pentatonic chord progression (soothing and non-dissonant)
+                double[][] chords = {
+                    {130.81, 196.00, 261.63},  // C3, G3, C4
+                    {146.83, 220.00, 293.66},  // D3, A3, D4
+                    {164.81, 246.94, 329.63},  // E3, B3, E4
+                    {130.81, 196.00, 329.63},  // C3, G3, E4
+                };
+                double chordDuration = 8.0; // seconds per chord
                 while (line.isOpen()) {
                     for (int i = 0; i < buf.length / 2; i++) {
                         double time = (double) sample / sampleRate;
-                        // Deep, warm tones
-                        double wave = 0.12 * Math.sin(2 * Math.PI * 110 * time);  // A2
-                        wave += 0.08 * Math.sin(2 * Math.PI * 165 * time);        // E3
-                        wave += 0.06 * Math.sin(2 * Math.PI * 220 * time);        // A3
-                        // Very slow breathing modulation
-                        double mod = 0.4 + 0.6 * Math.sin(2 * Math.PI * 0.08 * time);
-                        wave *= mod * 0.15;
+                        double chordProgress = (time % (chordDuration * chords.length)) / chordDuration;
+                        int chordIdx = (int) chordProgress % chords.length;
+                        int nextChordIdx = (chordIdx + 1) % chords.length;
+                        double blend = chordProgress - chordIdx;
+                        double crossfade = blend > 0.8 ? (blend - 0.8) / 0.2 : 0.0;
+
+                        double[] curr = chords[chordIdx];
+                        double[] next = chords[nextChordIdx];
+
+                        double wave = 0;
+                        for (int n = 0; n < curr.length; n++) {
+                            double amp = (n == 0 ? 0.10 : n == 1 ? 0.08 : 0.06) * (1.0 - crossfade);
+                            wave += amp * Math.sin(2 * Math.PI * curr[n] * time);
+                            wave += amp * 0.15 * Math.sin(2 * Math.PI * curr[n] * 2 * time);
+                        }
+                        for (int n = 0; n < next.length; n++) {
+                            double amp = (n == 0 ? 0.10 : n == 1 ? 0.08 : 0.06) * crossfade;
+                            wave += amp * Math.sin(2 * Math.PI * next[n] * time);
+                            wave += amp * 0.15 * Math.sin(2 * Math.PI * next[n] * 2 * time);
+                        }
+                        double mod = 0.6 + 0.4 * Math.sin(2 * Math.PI * 0.12 * time);
+                        double mod2 = 0.8 + 0.2 * Math.sin(2 * Math.PI * 0.03 * time);
+                        wave *= mod * mod2 * 0.2;
                         short s = (short) (wave * Short.MAX_VALUE);
                         buf[i * 2] = (byte) (s & 0xff);
                         buf[i * 2 + 1] = (byte) ((s >> 8) & 0xff);

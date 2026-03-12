@@ -9,9 +9,39 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * fleeing from cells bigger than it and chasing cells smaller than it (including the player).
  * Eats smaller food cells and other NPCs, and tracks its own score.
  * NPCs have random names and behave like autonomous players with survival instincts.
+ * Each NPC has a difficulty level (EASY, MEDIUM, HARD) that affects its error margin,
+ * steering jitter, mood stability, and food-seeking aggression.
  * @author Kamil Yunus Özkaya
  */
 public class NPC {
+
+    /** Difficulty levels affecting NPC AI precision and aggression */
+    public enum Difficulty {
+        EASY(0.15, 0.70, 0.010, 0.8, 300),
+        MEDIUM(0.06, 0.35, 0.004, 1.5, 450),
+        HARD(0.02, 0.15, 0.001, 2.5, 600);
+
+        /** Chance per tick to ignore navigation and move randomly */
+        public final double errorChance;
+        /** Angular jitter (radians) added to steering vector */
+        public final double steerJitter;
+        /** Chance per tick to become distracted */
+        public final double moodChangeChance;
+        /** Food chase weight multiplier (higher = more aggressive food seeking) */
+        public final double foodWeight;
+        /** Vision range in pixels */
+        public final int visionRange;
+
+        Difficulty(double errorChance, double steerJitter, double moodChangeChance,
+                   double foodWeight, int visionRange) {
+            this.errorChance = errorChance;
+            this.steerJitter = steerJitter;
+            this.moodChangeChance = moodChangeChance;
+            this.foodWeight = foodWeight;
+            this.visionRange = visionRange;
+        }
+    }
+
     /** The cell entity representing this NPC in the world */
     public Cell cell;
 
@@ -24,6 +54,9 @@ public class NPC {
     /** Whether this NPC is still alive */
     public boolean alive = true;
 
+    /** Difficulty level of this NPC */
+    public final Difficulty difficulty;
+
     // Movement direction flags (set by navigation AI)
     private boolean right, left, up, down;
 
@@ -34,19 +67,6 @@ public class NPC {
 
     // Speed constants — fixed speed of 3 (no longer scales with size)
     private static final double DEFAULT_SPEED = 3;
-
-    // Navigation constants
-    /** How far the NPC can "see" threats and prey */
-    private static final int VISION_RANGE = 400;
-
-    /** Chance (0–1) per tick that the NPC ignores its navigation and makes a random move */
-    private static final double ERROR_CHANCE = 0.08;
-
-    /** Maximum angular jitter (radians) added to the steering vector each tick */
-    private static final double STEER_JITTER = 0.45;
-
-    /** Chance per tick that an NPC spontaneously changes behaviour (e.g. stops chasing) */
-    private static final double MOOD_CHANGE_CHANCE = 0.005;
 
     /** When true the NPC is in a "distracted" phase and will roam instead of chasing */
     private boolean distracted = false;
@@ -67,13 +87,15 @@ public class NPC {
     };
 
     /**
-     * Creates a new NPC with random name and color at the given position.
+     * Creates a new NPC with random name, color, and difficulty at the given position.
      * @param cx center X in world coordinates
      * @param cy center Y in world coordinates
      * @param radius initial cell radius
      * @param usedNames names already taken (to avoid duplicates)
+     * @param difficulty the AI difficulty level for this NPC
      */
-    public NPC(int cx, int cy, double radius, java.util.Set<String> usedNames) {
+    public NPC(int cx, int cy, double radius, java.util.Set<String> usedNames, Difficulty difficulty) {
+        this.difficulty = difficulty;
         this.cell = new Cell(cx, cy, radius);
         this.cell.spawnAlpha = 1f;
         this.cell.cellColor = GamePanel.colors[rng.nextInt(GamePanel.colors.length)];
@@ -122,7 +144,7 @@ public class NPC {
         updateSpeed();
 
         // Random mood swing: occasionally become "distracted" and stop chasing
-        if (!distracted && rng.nextDouble() < MOOD_CHANGE_CHANCE) {
+        if (!distracted && rng.nextDouble() < difficulty.moodChangeChance) {
             distracted = true;
             distractedTimer = 60 + rng.nextInt(120); // distracted for 60–180 ticks
         }
@@ -132,7 +154,7 @@ public class NPC {
         }
 
         // Random error: occasionally ignore navigation entirely and move randomly
-        if (rng.nextDouble() < ERROR_CHANCE) {
+        if (rng.nextDouble() < difficulty.errorChance) {
             randomizeDirection();
             cell.updateCellPos(right, left, up, down);
             return;
@@ -179,7 +201,7 @@ public class NPC {
 
         // Steer towards roam target with some jitter
         double angle = Math.atan2(dy, dx);
-        angle += (rng.nextDouble() - 0.5) * STEER_JITTER * 2;
+        angle += (rng.nextDouble() - 0.5) * difficulty.steerJitter * 2;
 
         right = Math.cos(angle) > 0.1;
         left  = Math.cos(angle) < -0.1;
@@ -197,6 +219,7 @@ public class NPC {
         double myCX = cell.x + cell.cellRad;
         double myCY = cell.y + cell.cellRad;
         double myRad = cell.cellRad;
+        int visionRange = difficulty.visionRange;
 
         // Accumulated steering vector
         double steerX = 0;
@@ -211,17 +234,17 @@ public class NPC {
             double dy = pCY - myCY;
             double dist = Math.sqrt(dx * dx + dy * dy);
 
-            if (dist > 0 && dist < VISION_RANGE) {
+            if (dist > 0 && dist < visionRange) {
                 double pRad = playerCell.cellRad;
                 if (pRad > myRad + 0.5) {
                     // Player is bigger — FLEE (stronger force when closer)
-                    double weight = 3.0 * (VISION_RANGE - dist) / VISION_RANGE;
+                    double weight = 3.0 * (visionRange - dist) / visionRange;
                     steerX -= weight * (dx / dist);
                     steerY -= weight * (dy / dist);
                     hasInput = true;
                 } else if (myRad > pRad + 0.5 && !distracted) {
                     // Player is smaller — CHASE (unless distracted)
-                    double weight = 2.0 * (VISION_RANGE - dist) / VISION_RANGE;
+                    double weight = 2.5 * (visionRange - dist) / visionRange;
                     steerX += weight * (dx / dist);
                     steerY += weight * (dy / dist);
                     hasInput = true;
@@ -238,17 +261,17 @@ public class NPC {
             double dy = oCY - myCY;
             double dist = Math.sqrt(dx * dx + dy * dy);
 
-            if (dist > 0 && dist < VISION_RANGE) {
+            if (dist > 0 && dist < visionRange) {
                 double oRad = other.cell.cellRad;
                 if (oRad > myRad + 0.5) {
                     // Other NPC is bigger — FLEE
-                    double weight = 3.0 * (VISION_RANGE - dist) / VISION_RANGE;
+                    double weight = 3.0 * (visionRange - dist) / visionRange;
                     steerX -= weight * (dx / dist);
                     steerY -= weight * (dy / dist);
                     hasInput = true;
                 } else if (myRad > oRad + 0.5 && !distracted) {
                     // Other NPC is smaller — CHASE (unless distracted)
-                    double weight = 1.5 * (VISION_RANGE - dist) / VISION_RANGE;
+                    double weight = 2.0 * (visionRange - dist) / visionRange;
                     steerX += weight * (dx / dist);
                     steerY += weight * (dy / dist);
                     hasInput = true;
@@ -256,7 +279,7 @@ public class NPC {
             }
         }
 
-        // Check food cells as prey (always smaller, low priority chase)
+        // Check food cells as prey — weight scales with difficulty's food aggression
         for (Cell food : foodList) {
             double fCX = food.x + food.cellRad;
             double fCY = food.y + food.cellRad;
@@ -264,8 +287,8 @@ public class NPC {
             double dy = fCY - myCY;
             double dist = Math.sqrt(dx * dx + dy * dy);
 
-            if (dist > 0 && dist < VISION_RANGE && myRad > food.cellRad + 0.5 && !distracted) {
-                double weight = 1.0 * (VISION_RANGE - dist) / VISION_RANGE;
+            if (dist > 0 && dist < visionRange && myRad > food.cellRad + 0.5 && !distracted) {
+                double weight = difficulty.foodWeight * (visionRange - dist) / visionRange;
                 steerX += weight * (dx / dist);
                 steerY += weight * (dy / dist);
                 hasInput = true;
@@ -277,7 +300,7 @@ public class NPC {
         // Add angular jitter to make movement less robotic
         double steerAngle = Math.atan2(steerY, steerX);
         double steerMag = Math.sqrt(steerX * steerX + steerY * steerY);
-        steerAngle += (rng.nextDouble() - 0.5) * STEER_JITTER * 2;
+        steerAngle += (rng.nextDouble() - 0.5) * difficulty.steerJitter * 2;
         steerX = steerMag * Math.cos(steerAngle);
         steerY = steerMag * Math.sin(steerAngle);
 
@@ -299,6 +322,6 @@ public class NPC {
     public void grow(double eatenRad) {
         double newRad = Math.sqrt(cell.cellRad * cell.cellRad + eatenRad * eatenRad);
         cell.cellRad = newRad;
-        score = (int) Math.ceil(newRad);
+        score = (int) Math.ceil(newRad * 10);
     }
 }
