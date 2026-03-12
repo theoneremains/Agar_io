@@ -4,6 +4,7 @@ import java.awt.*;
 import java.awt.Color;
 import java.awt.event.KeyEvent;
 import java.awt.event.KeyListener;
+import java.awt.geom.AffineTransform;
 import java.util.*;
 import java.util.concurrent.CopyOnWriteArrayList;
 
@@ -74,6 +75,17 @@ public class GamePanel extends JPanel implements KeyListener {
     private double cameraX = 0;
     private double cameraY = 0;
 
+    // Dynamic camera zoom: starts zoomed in, pulls out as player grows
+    private static final double INITIAL_ZOOM = 5.0;
+    private static final double MIN_ZOOM     = 0.8;
+    private static final double ZOOM_LERP    = 0.03;
+    private double cameraZoom = INITIAL_ZOOM;
+
+    // Division mechanic: cells bigger but <2x area divide instead of eating
+    private static final int DIVISION_CONTACT_TICKS = 200; // 2 seconds at 10ms/tick
+    private HashMap<Long, Integer> divisionContacts = new HashMap<>();
+    public CopyOnWriteArrayList<DivisionEffect> divisionEffects = new CopyOnWriteArrayList<>();
+
     /** When true the game loop is paused (used by the developer log) */
     public volatile boolean paused = false;
 
@@ -127,6 +139,14 @@ public class GamePanel extends JPanel implements KeyListener {
         playerCell.spawnAlpha = 1f; // player appears immediately
         playerCell.speedX = BASE_SPEED;
         playerCell.speedY = BASE_SPEED;
+
+        // Initialize camera position centered on player (accounting for zoom)
+        double initVisW = MainClass.SCREEN_WIDTH / cameraZoom;
+        double initVisH = MainClass.SCREEN_HEIGHT / cameraZoom;
+        cameraX = playerCell.x + playerCell.cellRad - initVisW / 2.0;
+        cameraY = playerCell.y + playerCell.cellRad - initVisH / 2.0;
+        cameraX = Math.max(0, Math.min(cameraX, MainClass.WORLD_WIDTH - initVisW));
+        cameraY = Math.max(0, Math.min(cameraY, MainClass.WORLD_HEIGHT - initVisH));
 
         // First enemy cell at a non-overlapping world position
         randomCell = generateNonOverlappingCell();
@@ -287,11 +307,25 @@ public class GamePanel extends JPanel implements KeyListener {
                             if (npc.alive) npc.update(playerCell, npcList, celllist);
                         }
 
-                        // Smooth camera lerp — follows player center
-                        double targetX = playerCell.x + playerCell.cellRad - MainClass.SCREEN_WIDTH  / 2.0;
-                        double targetY = playerCell.y + playerCell.cellRad - MainClass.SCREEN_HEIGHT / 2.0;
-                        targetX = Math.max(0, Math.min(targetX, MainClass.WORLD_WIDTH  - MainClass.SCREEN_WIDTH));
-                        targetY = Math.max(0, Math.min(targetY, MainClass.WORLD_HEIGHT - MainClass.SCREEN_HEIGHT));
+                        // Dynamic camera zoom: starts zoomed in, pulls out as player grows
+                        double targetZoom = Math.max(MIN_ZOOM, INITIAL_ZOOM * Math.sqrt(INITIAL_RAD / playerCell.cellRad));
+                        cameraZoom += (targetZoom - cameraZoom) * ZOOM_LERP;
+
+                        // Smooth camera lerp — follows player center (accounting for zoom)
+                        double visW = MainClass.SCREEN_WIDTH / cameraZoom;
+                        double visH = MainClass.SCREEN_HEIGHT / cameraZoom;
+                        double targetX = playerCell.x + playerCell.cellRad - visW / 2.0;
+                        double targetY = playerCell.y + playerCell.cellRad - visH / 2.0;
+                        if (visW >= MainClass.WORLD_WIDTH) {
+                            targetX = (MainClass.WORLD_WIDTH - visW) / 2.0;
+                        } else {
+                            targetX = Math.max(0, Math.min(targetX, MainClass.WORLD_WIDTH - visW));
+                        }
+                        if (visH >= MainClass.WORLD_HEIGHT) {
+                            targetY = (MainClass.WORLD_HEIGHT - visH) / 2.0;
+                        } else {
+                            targetY = Math.max(0, Math.min(targetY, MainClass.WORLD_HEIGHT - visH));
+                        }
 
                         // Snap camera instantly when player wraps across a world boundary
                         if (Math.abs(targetX - cameraX) > MainClass.WORLD_WIDTH  / 2.0) cameraX = targetX;
@@ -367,6 +401,103 @@ public class GamePanel extends JPanel implements KeyListener {
                                 triggerGameOver();
                                 break;
                             }
+                        }
+
+                        // ========== DIVISION MECHANIC ==========
+                        HashMap<Long, Integer> newContacts = new HashMap<>();
+
+                        // Player divides food cells
+                        if (!gameOver) {
+                            for (int i = 0; i < celllist.size(); i++) {
+                                Cell food = celllist.get(i);
+                                if (playerCell.canDivide(food) && playerCell.isTouching(food)) {
+                                    long key = contactKey(playerCell, food);
+                                    int ticks = divisionContacts.getOrDefault(key, 0) + 1;
+                                    if (ticks >= DIVISION_CONTACT_TICKS) {
+                                        divideFoodCell(i, playerCell);
+                                        i--;
+                                    } else {
+                                        newContacts.put(key, ticks);
+                                    }
+                                }
+                            }
+                        }
+
+                        // Player divides NPC cells
+                        if (!gameOver) {
+                            for (NPC npc : npcList) {
+                                if (!npc.alive) continue;
+                                if (playerCell.canDivide(npc.cell) && playerCell.isTouching(npc.cell)) {
+                                    long key = contactKey(playerCell, npc.cell);
+                                    int ticks = divisionContacts.getOrDefault(key, 0) + 1;
+                                    if (ticks >= DIVISION_CONTACT_TICKS) {
+                                        divideEntityCell(npc.cell, playerCell, npc);
+                                    } else {
+                                        newContacts.put(key, ticks);
+                                    }
+                                }
+                            }
+                        }
+
+                        // NPCs divide food cells
+                        for (NPC npc : npcList) {
+                            if (!npc.alive) continue;
+                            for (int i = 0; i < celllist.size(); i++) {
+                                if (i >= celllist.size()) break;
+                                Cell food = celllist.get(i);
+                                if (npc.cell.canDivide(food) && npc.cell.isTouching(food)) {
+                                    long key = contactKey(npc.cell, food);
+                                    int ticks = divisionContacts.getOrDefault(key, 0) + 1;
+                                    if (ticks >= DIVISION_CONTACT_TICKS) {
+                                        divideFoodCell(i, npc.cell);
+                                        i--;
+                                    } else {
+                                        newContacts.put(key, ticks);
+                                    }
+                                }
+                            }
+                        }
+
+                        // NPCs divide other NPCs
+                        for (NPC predator : npcList) {
+                            if (!predator.alive) continue;
+                            for (NPC prey : npcList) {
+                                if (!prey.alive || predator == prey) continue;
+                                if (predator.cell.canDivide(prey.cell) && predator.cell.isTouching(prey.cell)) {
+                                    long key = contactKey(predator.cell, prey.cell);
+                                    int ticks = divisionContacts.getOrDefault(key, 0) + 1;
+                                    if (ticks >= DIVISION_CONTACT_TICKS) {
+                                        divideEntityCell(prey.cell, predator.cell, prey);
+                                    } else {
+                                        newContacts.put(key, ticks);
+                                    }
+                                }
+                            }
+                        }
+
+                        // NPCs divide the player
+                        if (!gameOver) {
+                            for (NPC npc : npcList) {
+                                if (!npc.alive) continue;
+                                if (npc.cell.canDivide(playerCell) && npc.cell.isTouching(playerCell)) {
+                                    long key = contactKey(npc.cell, playerCell);
+                                    int ticks = divisionContacts.getOrDefault(key, 0) + 1;
+                                    if (ticks >= DIVISION_CONTACT_TICKS) {
+                                        dividePlayerCell(npc.cell);
+                                    } else {
+                                        newContacts.put(key, ticks);
+                                    }
+                                }
+                            }
+                        }
+
+                        divisionContacts = newContacts;
+
+                        // Update division effects
+                        for (int i = divisionEffects.size() - 1; i >= 0; i--) {
+                            DivisionEffect effect = divisionEffects.get(i);
+                            effect.update();
+                            if (effect.finished) divisionEffects.remove(i);
                         }
 
                         // Easter egg: when all NPCs are dead, play the sound and end the game
@@ -465,14 +596,22 @@ public class GamePanel extends JPanel implements KeyListener {
         g2d.setRenderingHint(RenderingHints.KEY_RENDERING,    RenderingHints.VALUE_RENDER_QUALITY);
         g2d.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
 
+        // Save original transform for screen-space HUD drawing later
+        AffineTransform savedTransform = g2d.getTransform();
+
         int camX = (int) cameraX;
         int camY = (int) cameraY;
 
-        // Apply camera transform: shift coordinate system so world is drawn relative to camera
+        // Apply camera zoom and translation: world objects rendered in zoomed world space
+        g2d.scale(cameraZoom, cameraZoom);
         g2d.translate(-camX, -camY);
 
+        // Calculate visible world area for background rendering
+        int visibleW = (int) Math.ceil(MainClass.SCREEN_WIDTH / cameraZoom);
+        int visibleH = (int) Math.ceil(MainClass.SCREEN_HEIGHT / cameraZoom);
+
         // Draw world-space elements (background, cells, player name)
-        background.drawBackground(g2d, camX, camY);
+        background.drawBackground(g2d, camX, camY, visibleW, visibleH);
 
         // Draw enemy cells with smooth grow-in animation
         for (Cell c : celllist) {
@@ -521,8 +660,13 @@ public class GamePanel extends JPanel implements KeyListener {
             g2d.drawString(playerName, nameX, nameY);
         }
 
-        // Restore camera transform for screen-space HUD
-        g2d.translate(camX, camY);
+        // Draw active division effects (curvy split animations)
+        for (DivisionEffect effect : divisionEffects) {
+            effect.draw(g2d);
+        }
+
+        // Restore to screen-space for HUD drawing (undo zoom + translate)
+        g2d.setTransform(savedTransform);
 
         // Draw HUD: score and elapsed time
         g2d.setColor(Color.BLUE);
@@ -676,6 +820,158 @@ public class GamePanel extends JPanel implements KeyListener {
      * If it is already open, closes it (unpausing the game).
      * If it is closed, opens it (pausing the game).
      */
+    // ========== Division mechanic helpers ==========
+
+    private static long contactKey(Cell attacker, Cell target) {
+        return ((long) System.identityHashCode(attacker) << 32)
+             | (System.identityHashCode(target) & 0xFFFFFFFFL);
+    }
+
+    private void divideFoodCell(int foodIndex, Cell attacker) {
+        Cell food = celllist.get(foodIndex);
+        double origRad = food.cellRad;
+        double newRad = origRad / Math.sqrt(2);
+
+        double foodCX = food.x + food.cellRad;
+        double foodCY = food.y + food.cellRad;
+        double attackCX = attacker.x + attacker.cellRad;
+        double attackCY = attacker.y + attacker.cellRad;
+
+        double contactAngle = Math.atan2(foodCY - attackCY, foodCX - attackCX);
+        double divAngle = contactAngle + Math.PI / 2;
+        double moveDist = origRad;
+
+        double posAX = foodCX + Math.cos(divAngle) * moveDist;
+        double posAY = foodCY + Math.sin(divAngle) * moveDist;
+        double posBX = foodCX - Math.cos(divAngle) * moveDist;
+        double posBY = foodCY - Math.sin(divAngle) * moveDist;
+
+        divisionEffects.add(new DivisionEffect(foodCX, foodCY, posAX, posAY, posBX, posBY, newRad, food.cellColor, divAngle));
+        celllist.remove(foodIndex);
+
+        Cell halfA = new Cell((int) posAX, (int) posAY, newRad);
+        halfA.cellColor = food.cellColor;
+        halfA.spawnAlpha = 1f;
+        Cell halfB = new Cell((int) posBX, (int) posBY, newRad);
+        halfB.cellColor = food.cellColor;
+        halfB.spawnAlpha = 1f;
+        celllist.add(halfA);
+        celllist.add(halfB);
+
+        Sound.playEatSound();
+    }
+
+    private void divideEntityCell(Cell targetCell, Cell attacker, NPC targetNpc) {
+        double origRad = targetCell.cellRad;
+        double newRad = origRad / Math.sqrt(2);
+
+        double cellCX = targetCell.x + targetCell.cellRad;
+        double cellCY = targetCell.y + targetCell.cellRad;
+        double attackCX = attacker.x + attacker.cellRad;
+        double attackCY = attacker.y + attacker.cellRad;
+
+        double contactAngle = Math.atan2(cellCY - attackCY, cellCX - attackCX);
+        double divAngle = contactAngle + Math.PI / 2;
+        double moveDist = origRad;
+
+        double posAX = cellCX + Math.cos(divAngle) * moveDist;
+        double posAY = cellCY + Math.sin(divAngle) * moveDist;
+        double posBX = cellCX - Math.cos(divAngle) * moveDist;
+        double posBY = cellCY - Math.sin(divAngle) * moveDist;
+
+        boolean aIsSafer = isPositionASafer(posAX, posAY, posBX, posBY, newRad, attacker);
+        double safeX = aIsSafer ? posAX : posBX;
+        double safeY = aIsSafer ? posAY : posBY;
+        double dangerX = aIsSafer ? posBX : posAX;
+        double dangerY = aIsSafer ? posBY : posAY;
+
+        divisionEffects.add(new DivisionEffect(cellCX, cellCY, posAX, posAY, posBX, posBY, newRad, targetCell.cellColor, divAngle));
+
+        targetCell.cellRad = newRad;
+        targetCell.x = safeX - newRad;
+        targetCell.y = safeY - newRad;
+        if (targetNpc != null) targetNpc.updateSpeed();
+
+        Cell foodHalf = new Cell((int) dangerX, (int) dangerY, newRad);
+        foodHalf.cellColor = targetCell.cellColor;
+        foodHalf.spawnAlpha = 1f;
+        celllist.add(foodHalf);
+
+        Sound.playEatSound();
+    }
+
+    private void dividePlayerCell(Cell attacker) {
+        double origRad = playerCell.cellRad;
+        double newRad = origRad / Math.sqrt(2);
+
+        double cellCX = playerCell.x + playerCell.cellRad;
+        double cellCY = playerCell.y + playerCell.cellRad;
+        double attackCX = attacker.x + attacker.cellRad;
+        double attackCY = attacker.y + attacker.cellRad;
+
+        double contactAngle = Math.atan2(cellCY - attackCY, cellCX - attackCX);
+        double divAngle = contactAngle + Math.PI / 2;
+        double moveDist = origRad;
+
+        double posAX = cellCX + Math.cos(divAngle) * moveDist;
+        double posAY = cellCY + Math.sin(divAngle) * moveDist;
+        double posBX = cellCX - Math.cos(divAngle) * moveDist;
+        double posBY = cellCY - Math.sin(divAngle) * moveDist;
+
+        boolean aIsSafer = isPositionASafer(posAX, posAY, posBX, posBY, newRad, attacker);
+        double safeX = aIsSafer ? posAX : posBX;
+        double safeY = aIsSafer ? posAY : posBY;
+        double dangerX = aIsSafer ? posBX : posAX;
+        double dangerY = aIsSafer ? posBY : posAY;
+
+        divisionEffects.add(new DivisionEffect(cellCX, cellCY, posAX, posAY, posBX, posBY, newRad, playerCell.cellColor, divAngle));
+
+        playerCell.cellRad = newRad;
+        playerCell.x = safeX - newRad;
+        playerCell.y = safeY - newRad;
+
+        Cell foodHalf = new Cell((int) dangerX, (int) dangerY, newRad);
+        foodHalf.cellColor = playerCell.cellColor;
+        foodHalf.spawnAlpha = 1f;
+        celllist.add(foodHalf);
+
+        Sound.playEatSound();
+    }
+
+    private boolean isPositionASafer(double posAX, double posAY, double posBX, double posBY,
+                                      double newRadius, Cell excludeCell) {
+        double dangerA = 0;
+        double dangerB = 0;
+        double newArea = newRadius * newRadius;
+
+        if (excludeCell != playerCell && !gameOver) {
+            double pArea = playerCell.cellRad * playerCell.cellRad;
+            if (pArea > newArea) {
+                double pCX = playerCell.x + playerCell.cellRad;
+                double pCY = playerCell.y + playerCell.cellRad;
+                dangerA += pArea / Math.max(1, distSq(posAX, posAY, pCX, pCY));
+                dangerB += pArea / Math.max(1, distSq(posBX, posBY, pCX, pCY));
+            }
+        }
+
+        for (NPC npc : npcList) {
+            if (!npc.alive || npc.cell == excludeCell) continue;
+            double nArea = npc.cell.cellRad * npc.cell.cellRad;
+            if (nArea > newArea) {
+                double nCX = npc.cell.x + npc.cell.cellRad;
+                double nCY = npc.cell.y + npc.cell.cellRad;
+                dangerA += nArea / Math.max(1, distSq(posAX, posAY, nCX, nCY));
+                dangerB += nArea / Math.max(1, distSq(posBX, posBY, nCX, nCY));
+            }
+        }
+
+        return dangerA <= dangerB;
+    }
+
+    private static double distSq(double x1, double y1, double x2, double y2) {
+        return (x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1);
+    }
+
     private void toggleDevLog() {
         if (devLogDialog != null && devLogDialog.isVisible()) {
             devLogDialog.dispose();

@@ -8,6 +8,7 @@ import java.awt.RenderingHints;
  * Supports smooth spawn animation via spawnAlpha (0=invisible, 1=fully visible)
  * Player cell wraps toroidally around world boundaries instead of stopping
  * Cell radius and speed are double-precision for smooth area-based growth
+ * Eating requires 2x area advantage; smaller advantage triggers cell division
  * @author Kamil Yunus Özkaya
  */
 public class Cell
@@ -55,9 +56,15 @@ public class Cell
         x = cx - cellRad;
         y = cy - cellRad;
     }
-    //Checks the collision of the cells based on circle collision
+    /** Minimum radius a cell must have to be eligible for division */
+    private static final double MIN_DIVIDE_RADIUS = 0.7;
+
+    /**
+     * Checks collision for eating: requires the eater's area to be at least 2x the prey's area,
+     * and the prey's center must be within the eater's circle.
+     */
     public boolean isCollision (Cell playerCell, Cell randomCell){
-        if(playerCell.cellRad>randomCell.cellRad + radiusDifference){
+        if(playerCell.canEat(randomCell)){
             double playerX,playerY,randomX,randomY;
             playerX = playerCell.getX() + playerCell.cellRad;
             playerY = playerCell.getY() + playerCell.cellRad;
@@ -67,6 +74,45 @@ public class Cell
                 return true;
         }
         return false;
+    }
+
+    /**
+     * Whether this cell can eat the other cell directly (area >= 2x other's area).
+     * @param other the potential prey cell
+     * @return true if this cell's area is at least 2x the other's area
+     */
+    public boolean canEat(Cell other) {
+        return cellRad * cellRad >= 2.0 * other.cellRad * other.cellRad;
+    }
+
+    /**
+     * Whether this cell can trigger division on the other cell.
+     * Division occurs when this cell is bigger but has less than 2x the area,
+     * and the target cell is large enough to divide.
+     * @param other the potential division target
+     * @return true if division is possible
+     */
+    public boolean canDivide(Cell other) {
+        if (other.cellRad < MIN_DIVIDE_RADIUS) return false;
+        double myArea = cellRad * cellRad;
+        double otherArea = other.cellRad * other.cellRad;
+        return myArea > otherArea * 1.01 && myArea < 2.0 * otherArea;
+    }
+
+    /**
+     * Whether this cell is physically touching (overlapping) the other cell.
+     * Used for division contact tracking.
+     * @param other the other cell to check against
+     * @return true if the circles overlap
+     */
+    public boolean isTouching(Cell other) {
+        double cx1 = x + cellRad;
+        double cy1 = y + cellRad;
+        double cx2 = other.x + other.cellRad;
+        double cy2 = other.y + other.cellRad;
+        double dx = cx2 - cx1;
+        double dy = cy2 - cy1;
+        return Math.sqrt(dx * dx + dy * dy) < cellRad + other.cellRad;
     }
     public double getX()
     {

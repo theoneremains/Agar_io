@@ -49,13 +49,15 @@ public class Background
     /**
      * drawBackground : Draws a slowly shifting pastel gradient and 12 drifting translucent
      * cell-like blobs across the visible viewport. Call this while the Graphics2D transform
-     * is shifted by -cameraX, -cameraY so rendering is in world space.
+     * is shifted by -cameraX, -cameraY (and optionally scaled for zoom) so rendering is in world space.
      *
-     * @param g       the Graphics2D context (already translated by -cameraX, -cameraY)
-     * @param cameraX current horizontal camera offset in world coordinates
-     * @param cameraY current vertical camera offset in world coordinates
+     * @param g            the Graphics2D context (already translated by -cameraX, -cameraY)
+     * @param cameraX      current horizontal camera offset in world coordinates
+     * @param cameraY      current vertical camera offset in world coordinates
+     * @param visibleWidth  visible world width (SCREEN_WIDTH / zoom)
+     * @param visibleHeight visible world height (SCREEN_HEIGHT / zoom)
      */
-    public void drawBackground(Graphics2D g, int cameraX, int cameraY)
+    public void drawBackground(Graphics2D g, int cameraX, int cameraY, int visibleWidth, int visibleHeight)
     {
         // Advance overall color phase (full cycle ~500 seconds at 100 FPS)
         phase = (phase + 0.002f) % 1f;
@@ -64,9 +66,9 @@ public class Background
         Color c1 = Color.getHSBColor(phase,                0.25f, 0.97f);
         Color c2 = Color.getHSBColor((phase + 0.3f) % 1f,  0.20f, 0.90f);
         g.setPaint(new GradientPaint(
-                cameraX,                                 cameraY,                                   c1,
-                cameraX + MainClass.SCREEN_WIDTH, cameraY + MainClass.SCREEN_HEIGHT, c2));
-        g.fillRect(cameraX, cameraY, MainClass.SCREEN_WIDTH, MainClass.SCREEN_HEIGHT);
+                cameraX,                          cameraY,                            c1,
+                cameraX + visibleWidth, cameraY + visibleHeight, c2));
+        g.fillRect(cameraX, cameraY, visibleWidth, visibleHeight);
 
         // Drifting blob cells
         Composite origComposite = g.getComposite();
@@ -79,8 +81,8 @@ public class Background
             float s = blobSize[i];
 
             // Skip blobs entirely outside the current viewport (with margin)
-            if (blobX[i] + s < cameraX || blobX[i] - s > cameraX + MainClass.SCREEN_WIDTH)  continue;
-            if (blobY[i] + s < cameraY || blobY[i] - s > cameraY + MainClass.SCREEN_HEIGHT) continue;
+            if (blobX[i] + s < cameraX || blobX[i] - s > cameraX + visibleWidth)  continue;
+            if (blobY[i] + s < cameraY || blobY[i] - s > cameraY + visibleHeight) continue;
 
             // Radial gradient: blob center color fading to transparent at edges
             Color blobCenter = Color.getHSBColor(blobHue[i], 0.4f, 0.95f);

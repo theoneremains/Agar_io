@@ -3,7 +3,7 @@ AIU Hackathon group project — Agar.io clone made with Java
 Group Members : Kamil Yunus Özkaya, Mert Efe Sevim, Ahmet Kurt
 
 ## How to Play
-You are a circular cell that can eat other cells smaller than you, and you get bigger. Score increases by the size of each eaten cell.
+You are a circular cell. To eat another cell, your area must be at least **twice** theirs. If you're bigger but lack 2x area, holding contact for 2 seconds will **divide** the cell into two halves — one you can control, one becomes food.
 Compete against NPC players who also move, eat, and grow. Eliminate all NPCs to win! Aim is to get the highest score!
 
 Controls: **WASD** or **Arrow Keys** to move, **ESC** to return to the main menu, **Ctrl+I** (or **Cmd+I** on macOS) to open the developer log.
@@ -12,6 +12,8 @@ Controls: **WASD** or **Arrow Keys** to move, **ESC** to return to the main menu
 - **Fullscreen mode** (default) — game launches in fullscreen; toggle between fullscreen and windowed in Options
 - **Configurable world dimensions** — change world size in Options (default 3840 × 2160); minimum 800 × 600
 - **Cell density** — controls how many food cells spawn based on world area; configurable in Options and Dev Log
+- **Dynamic camera zoom** — camera starts zoomed in so small cells are clearly visible; smoothly zooms out as the player grows larger
+- **Cell division** — cells that are bigger but lack 2x area advantage divide the target after 2 seconds of sustained contact; two halves split perpendicular to the contact direction with a curvy bezier animation; for player/NPC cells, the "furthest from danger" function determines which half to keep
 - Camera follows the player cell across the scrolling world with smooth lerp
 - **Toroidal world wrapping** — move off any edge and emerge from the opposite side seamlessly
 - **Enemy cells with random sizes** — radius varies from 8 to 35 pixels (capped below the player's current size), making every encounter feel different
