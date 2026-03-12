@@ -32,10 +32,8 @@ public class NPC {
 
     private static final Random rng = new Random();
 
-    // Dynamic speed constants (same as player)
-    private static final double BASE_SPEED  = 7;
-    private static final double INITIAL_RAD = 2;
-    private static final double MIN_SPEED   = 3;
+    // Speed constants — fixed speed of 3 (no longer scales with size)
+    private static final double DEFAULT_SPEED = 3;
 
     // Navigation constants
     /** How far the NPC can "see" threats and prey */
@@ -95,12 +93,10 @@ public class NPC {
         randomizeDirection();
     }
 
-    /** Updates the NPC's speed based on its current radius (area-based, same formula as player) */
+    /** Updates the NPC's speed — fixed at DEFAULT_SPEED (no size scaling) */
     public void updateSpeed() {
-        double ratio = INITIAL_RAD / cell.cellRad;
-        double dynSpeed = Math.max(MIN_SPEED, BASE_SPEED * ratio * ratio);
-        cell.speedX = dynSpeed;
-        cell.speedY = dynSpeed;
+        cell.speedX = DEFAULT_SPEED;
+        cell.speedY = DEFAULT_SPEED;
     }
 
     /** Randomizes movement direction (fallback when no threats or prey nearby) */
@@ -297,11 +293,12 @@ public class NPC {
     /**
      * Grows this NPC by eating a cell of the given radius, using area-based growth.
      * r3 = sqrt(r1^2 + r2^2) — total area is conserved.
+     * Score is set to current radius after growth.
      * @param eatenRad radius of the eaten cell
      */
     public void grow(double eatenRad) {
         double newRad = Math.sqrt(cell.cellRad * cell.cellRad + eatenRad * eatenRad);
         cell.cellRad = newRad;
-        score += (int) Math.ceil(eatenRad);
+        score = (int) Math.ceil(newRad);
     }
 }
