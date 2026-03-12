@@ -9,34 +9,38 @@ Compete against NPC players who also move, eat, and grow. Eliminate all NPCs to 
 Controls: **WASD** or **Arrow Keys** to move, **ESC** to return to the main menu, **Ctrl+I** (or **Cmd+I** on macOS) to open the developer log.
 
 ## Features
+- **Modern UI** — styled buttons with rounded corners, gradient fills, hover glow, and press animations; dark themed animated gradient backgrounds with floating translucent circles
+- **Ambient sounds** — soothing synthesized pad music in the main menu and a warm ambient drone during gameplay; all programmatically generated
+- **Eat animation** — colored particle burst at the point of consumption
+- **Division animation** — curvy bezier split animation with pulsing ripple arcs during 2-second buildup
+- **Bounce animation** — curvy ripple effect with bounce sound when touching an uneatable cell
+- **Button hover effects** — smooth color transitions between resting, hover, and pressed states
+- **Radius-based scoring** — score equals the cell's current radius; on death/division, score freezes
+- **Fixed speed** — all cells move at a constant speed of 3, making gameplay more controllable; dev log still allows manual speed override
 - **Fullscreen mode** (default) — game launches in fullscreen; toggle between fullscreen and windowed in Options
 - **Configurable world dimensions** — change world size in Options (default 3840 × 2160); minimum 800 × 600
 - **Cell density** — controls how many food cells spawn based on world area; configurable in Options and Dev Log
 - **Dynamic camera zoom** — camera starts zoomed in so small cells are clearly visible; smoothly zooms out as the player grows larger
-- **Cell division** — cells that are bigger but lack 2x area advantage divide the target after 2 seconds of sustained contact; two halves split perpendicular to the contact direction with a curvy bezier animation; for player/NPC cells, the "furthest from danger" function determines which half to keep
-- Camera follows the player cell across the scrolling world with smooth lerp
+- **Cell division** — cells bigger but lacking 2x area advantage divide the target after 2 seconds of sustained contact; two halves split perpendicular to the contact direction
+- Camera follows the player cell with smooth lerp
 - **Toroidal world wrapping** — move off any edge and emerge from the opposite side seamlessly
-- **Enemy cells with random sizes** — radius varies from 8 to 35 pixels (capped below the player's current size), making every encounter feel different
-- **No-overlap spawning** — new enemy cells are guaranteed not to appear on top of the player or existing cells (up to 50 retry attempts per spawn)
-- **Volume-based growth** — eating a cell always grows the player by at least the eaten cell's radius, never just 1 pixel
-- **Anti-aliased rendering** — all cells are drawn with `RenderingHints.VALUE_ANTIALIAS_ON` for smooth, round edges
-- **Player name** — enter your name before each game; it is displayed centered and font-size fitted inside your cell as it grows
-- **NPC opponents with navigation AI** — AI-controlled cells with random names that intelligently flee from bigger cells and chase smaller ones (including the player); eat food cells and each other, and compete on the scoreboard; choose the number of NPCs (minimum 3) when starting a game
-- **Live scoreboard** — top-right corner shows all players ranked by score; your entry is highlighted in yellow; dead NPCs shown greyed out
-- **Game over screen** — when all NPCs are eliminated (easter egg plays first) or when an NPC eats you, a game over overlay shows final standings, time played, and a RESTART button
-- **Score by size** — score increases by the eaten cell's radius, not just +1
-- **Dynamic player speed** — starts at 7 px/tick at radius 18; speed scales down as the player grows but never drops below 3 (`max(3, 7 × 18 / radius)`)
-- **Smooth cell spawn animation** — new enemy cells grow in over ~200 ms instead of appearing instantly
-- **Eat sound effect** — a short descending "bloop" tone plays each time a cell is consumed (generated programmatically, no extra audio file needed); respects the SOUND toggle
-- **Animated gradient background** — slowly shifting pastel colors with 12 drifting semi-transparent cell-like blobs replace the former static image
-- **Developer log (Ctrl+I / Cmd+I)** — pauses the game and opens an editable overlay showing: player name, radius, score, speed (X/Y), world position, and live enemy count. All fields are editable; click "Apply & Resume" or close the window to resume play. Tick "Manual Speed Override" to pin speed independently of the dynamic calculation.
-- Highscore is tracked and displayed on the main menu between games
-- Options menu:
-  - **SOUND** — toggle all game sounds on/off
+- **No-overlap spawning** — new cells guaranteed not to appear on top of existing cells
+- **Area-based growth** — eating a cell conserves total area (`r3 = sqrt(r1² + r2²)`)
+- **Anti-aliased rendering** — all cells drawn with smooth, round edges
+- **Player name** — enter your name before each game; displayed centered inside your cell
+- **NPC opponents with navigation AI** — AI-controlled cells that intelligently flee from bigger cells and chase smaller ones; choose NPC count (minimum 3) when starting
+- **Live scoreboard** — top-right corner shows all players ranked by radius-based score
+- **Game over screen** — final standings, time played, and styled RESTART button
+- **Sound effects** — eat bloop, division rise tone, bounce wobble, and UI click sounds; all programmatic
+- **Animated gradient background** — slowly shifting pastel colors with 12 drifting semi-transparent blobs
+- **Developer log (Ctrl+I / Cmd+I)** — pauses game; edit player name, radius, score, speed, position; manual speed override checkbox for debugging
+- Highscore tracked and displayed on the main menu
+- Options menu (modern styled buttons and animated background):
+  - **SOUND** — toggle sounds on/off (button color changes dynamically)
   - **COLOR** — cycle through available player cell colors
   - **FULLSCREEN** — toggle fullscreen/windowed mode
   - **WORLD SIZE** — set custom world width and height
-  - **CELL DENSITY** — adjust food cell density (cells per million pixels of world area)
+  - **CELL DENSITY** — adjust food cell density
 
 ## Installation & Running
 

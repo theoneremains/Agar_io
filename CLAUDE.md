@@ -10,7 +10,7 @@ A Java Swing Agar.io clone developed as an AIU Hackathon group project.
 
 **Game concept:** The player controls a circular cell. Eating smaller cells increases the player's size and score. The goal is to achieve the highest score.
 
-**Current status:** Functional game with intelligent NPC opponents (navigation AI with error/jitter — flee bigger, chase smaller, roam when idle), smooth camera tracking, highscore, sound toggle, player color selection, fullscreen mode (default), configurable world dimensions, configurable cell density (default 200 cells/M px), toroidal world wrapping, three-tier food cell categories (Small/Medium/Large), smooth cell spawn animation, eat sound, animated gradient background, anti-aliased rendering, player name display, dynamic speed (min 3), no-overlap spawn, area-based growth (`r3 = sqrt(r1² + r2²)`), double-precision cell radii, live scoreboard, game over screen with stats, and an in-game developer log.
+**Current status:** Functional game with intelligent NPC opponents (navigation AI with error/jitter — flee bigger, chase smaller, roam when idle), smooth camera tracking, highscore, sound toggle, player color selection, fullscreen mode (default), configurable world dimensions, configurable cell density (default 200 cells/M px), toroidal world wrapping, three-tier food cell categories (Small/Medium/Large), smooth cell spawn animation, eat particle effects, division contact animations, bounce contact effects, ambient menu/game sounds, modernized UI with styled buttons (hover/press animations), animated gradient menu backgrounds, fixed speed (3), no-overlap spawn, area-based growth (`r3 = sqrt(r1² + r2²)`), radius-based scoring, double-precision cell radii, live scoreboard, game over screen with stats, and an in-game developer log.
 
 ---
 
@@ -42,7 +42,11 @@ Agar_io/
 │   ├── Sound.java          # Audio playback wrapper (javax.sound.sampled)
 │   ├── NPC.java            # NPC entity — AI-controlled cells with names, scores, random movement
 │   ├── DevLogDialog.java   # Developer log window (Ctrl+I) — pauses game, editable world stats
-│   ├── agario.png          # Menu/options background image
+│   ├── DivisionEffect.java # Division split animation with bezier curves
+│   ├── EatEffect.java      # Particle burst animation when a cell is eaten
+│   ├── ContactEffect.java  # Curvy ripple animation at cell contact points
+│   ├── StyledButton.java   # Modern animated button with hover/press effects
+│   ├── agario.png          # Menu/options background image (no longer used — backgrounds are procedural)
 │   ├── background.png      # In-game background image (no longer used — background is procedural)
 │   ├── coolMusic.wav       # Easter egg audio
 │   └── click.wav           # Button click sound
@@ -133,13 +137,14 @@ Note: Assets (`.png`, `.wav`) live in `src/` alongside Java files. The build scr
   - **Large** (3%): radius 5–10
   - Food cells cannot move, cannot eat other cells, cannot spawn on top of any other cell
 - **NPC system:** `npcList` is a `CopyOnWriteArrayList<NPC>`; NPCs use navigation AI (flee bigger, chase smaller), eat food cells and smaller NPCs, can eat the player if bigger; each NPC tracks its own score
-- **Score:** increased by the eaten cell's radius (not +1); stored in `hud.score`; `highscore` updated whenever `hud.score > highscore`
+- **Score:** based on cell's current radius — `hud.score = ceil(playerCell.cellRad)`; NPC scores similarly set to `ceil(cell.cellRad)`; on death/division, score is frozen at the cell's radius at that moment; `highscore` updated whenever `hud.score > highscore`
 - **Scoreboard:** `getScoreboard()` returns a sorted list of player + all NPCs ranked by score; `drawScoreboard()` renders it in the top-right corner with the player's entry highlighted in yellow; dead NPCs shown greyed out with `[dead]` tag
 - **Camera:** `cameraX`/`cameraY` are `double` fields updated with 15% lerp each tick; wrap-snap (instant jump) when player crosses a world boundary; cast to `int` for `g2d.translate()`
-- **Rendering:** enemy cells drawn with `AlphaComposite` and scaled radius driven by `spawnAlpha`; NPC cells drawn with names centered inside; full anti-aliasing (`RenderingHints.VALUE_ANTIALIAS_ON`) applied at top of `paintComponent`
+- **Rendering:** enemy cells drawn with `AlphaComposite` and scaled radius driven by `spawnAlpha`; NPC cells drawn with names centered inside; full anti-aliasing (`RenderingHints.VALUE_ANTIALIAS_ON`) applied at top of `paintComponent`; eat particle effects (`EatEffect`), contact ripple effects (`ContactEffect`), and division animations (`DivisionEffect`) are all rendered in world space
+- **Ambient sound:** `gameAmbientLine` plays a soothing deep-tone drone during gameplay; stopped on game over or menu return
 - **Player color:** `static Color playerColor` — set in Options, applied to playerCell on game start
 - **Player name:** `static String playerName` — set from the main menu name dialog before each game; rendered centered and font-size fitted inside the player cell (`fontSize = max(8, min(cellRad/2, 24))`)
-- **Dynamic speed:** `BASE_SPEED=7` at `INITIAL_RAD=2`; area-based formula `max(MIN_SPEED=3, BASE_SPEED × (INITIAL_RAD / cellRad)²)` applied every tick unless `devSpeedOverride` is true
+- **Fixed speed:** `DEFAULT_SPEED=3` — constant for all cell sizes; no dynamic speed scaling; `devSpeedOverride` in the developer log still allows manual speed changes for debugging
 - **No-overlap spawn:** `generateNonOverlappingCell()` tries up to 50 positions; checks clearance against player, all existing food cells, and all NPC cells before placing a new food cell
 - **Area-based growth:** `newRad = sqrt(r1² + r2²)` — total area is conserved; cell radius is `double` for precision
 - **Easter egg:** when all NPCs are dead, plays `coolMusic.wav` and resets timer; after ~20 seconds the music finishes and the game ends
@@ -169,14 +174,14 @@ Note: Assets (`.png`, `.wav`) live in `src/` alongside Java files. The build scr
   - **Error chance:** 8% per tick (`ERROR_CHANCE = 0.08`) the NPC ignores navigation and moves randomly
   - **Mood swings:** 0.5% per tick (`MOOD_CHANGE_CHANCE = 0.005`) the NPC becomes "distracted" for 60–180 ticks, during which it will not chase prey but will still flee threats
   - **Roaming:** when nothing is in vision range, the NPC picks a random world target and steers towards it (with jitter), picking new targets upon arrival or timeout; this replaces the old random direction changes
-- **Speed:** uses same area-based formula as player (`max(3, 7 × (2/radius)²)`) via `updateSpeed()`
-- **Growth:** `grow(eatenRad)` applies area-based growth (`r3 = sqrt(r1² + r2²)`), increments `score` by `ceil(eatenRad)`
+- **Speed:** fixed at `DEFAULT_SPEED = 3` via `updateSpeed()` — no size scaling
+- **Growth:** `grow(eatenRad)` applies area-based growth (`r3 = sqrt(r1² + r2²)`), sets `score = ceil(newRad)` (radius-based)
 - **Name pool:** 20 pre-defined names (Blob, Chomper, Nibbler, etc.); duplicates avoided via `usedNames` set
 - **Constructor:** `NPC(int cx, int cy, double radius, Set<String> usedNames)` — picks unique name, random color from `GamePanel.colors[]`
 
 ### `HUD.java`
 - Extends `JPanel` (though only used as a data class)
-- `score` — integer increased by the eaten cell's radius on each eat
+- `score` — integer reflecting the player cell's current radius (`ceil(cellRad)`)
 - `elapsedTime` — milliseconds since `startTime`; reset by `resetTime()` on easter egg trigger
 
 ### `Background.java`
@@ -188,10 +193,12 @@ Note: Assets (`.png`, `.wav`) live in `src/` alongside Java files. The build scr
   3. Moves each blob with toroidal wrap, shifts its hue, draws it as a `RadialGradientPaint` oval if visible
 
 ### `MainPanel.java`
-- Main menu with START, OPTIONS, EXIT buttons
-- Button clicks play `click.wav`
-- START shows a `JOptionPane.showInputDialog` for the player's name, then another for NPC count (minimum 3, defaults to 3), stores values and creates `new GamePanel(mainClass, npcCount)` and swaps panels
-- `paintComponent` draws background image; `paint` calls `super.paint(g)` then overlays title and highscore text
+- Main menu with START, OPTIONS, EXIT `StyledButton` instances (modern animated buttons)
+- Button clicks play programmatic `Sound.playClickSound()` (no .wav needed)
+- **Ambient menu sound:** `Sound.playMenuAmbient()` plays a soothing pad sound (A major chord with slow modulation); stopped when navigating away
+- **Animated background:** procedural dark gradient with slowly drifting translucent circles; animated via Swing `Timer` at 30ms interval
+- START shows `JOptionPane.showInputDialog` for player name, then NPC count (minimum 3, defaults to 3)
+- `paintComponent` draws animated gradient background; `paint` overlays title with glow effect and highscore text
 
 ### `DevLogDialog.java`
 - Non-modal `JDialog` opened/closed by `GamePanel.toggleDevLog()` via Ctrl+I / Meta+I
@@ -211,17 +218,47 @@ Note: Assets (`.png`, `.wav`) live in `src/` alongside Java files. The build scr
 - Constructor: `new Sound(filename, soundSeconds)`
 - Play: `sound.playSound()` — no-ops when `soundEnabled == false`
 - Stop: `sound.closeSound()`
-- `static void playEatSound()` — generates a 150 ms descending sine sweep (600 → 200 Hz) via `SourceDataLine` directly in memory; no `.wav` file needed; runs on a daemon thread; respects `soundEnabled`
+- `static void playEatSound()` — 150 ms descending sine sweep (600 → 200 Hz); programmatic, no .wav needed
+- `static SourceDataLine playMenuAmbient()` — soothing A major chord pad with slow breathing modulation; returns the audio line (stop/close to end)
+- `static SourceDataLine playGameAmbient()` — deep warm ambient drone (A2/E3/A3) for in-game atmosphere
+- `static void playDivisionSound()` — rising dual-tone (200 ms) for cell division events
+- `static void playBounceSound()` — short bouncy wobble tone (100 ms) when touching an uneatable cell
+- `static void playClickSound()` — crisp descending click tone (60 ms) for UI button interactions
 - All threads set as daemon threads
 
 ### `OptionsPanel.java`
-- **SOUND button:** toggles `Sound.soundEnabled`; label shows "SOUND: ON" / "SOUND: OFF"
-- **COLOR button:** cycles `GamePanel.playerColorIndex` through `GamePanel.colors[]`; shows selected color in `colorPreview` panel; change applies to the next game started
-- **FULLSCREEN button:** toggles `MainClass.fullscreen` via `mainClass.toggleFullscreen()`; recreates the options panel to adjust layout for new screen dimensions
-- **World Size fields:** two text fields for width/height (minimum 800×600) with APPLY WORLD button; updates `MainClass.WORLD_WIDTH`/`WORLD_HEIGHT`; applies to next game
-- **Cell Density field:** text field for `GamePanel.cellDensity` (cells per million world-area pixels) with APPLY DENSITY button; shows computed max cells in confirmation
+- All buttons use `StyledButton` with contextual colors (green for ON, red for OFF states)
+- **SOUND button:** toggles `Sound.soundEnabled`; dynamically changes button color
+- **COLOR button:** cycles `GamePanel.playerColorIndex` through `GamePanel.colors[]`; shows selected color in `colorPreview` panel
+- **FULLSCREEN button:** toggles `MainClass.fullscreen`; dynamically changes button color
+- **World Size fields:** styled text fields with dark theme; APPLY button updates `MainClass.WORLD_WIDTH`/`WORLD_HEIGHT`
+- **Cell Density field:** styled text field; APPLY button updates `GamePanel.cellDensity`
 - **BACK button:** returns to main menu
-- `paintComponent` draws background image scaled to screen; `paint` calls `super.paint(g)` then overlays title and highscore
+- **Animated background:** same procedural dark gradient as MainPanel
+- `paintComponent` draws animated gradient; `paint` overlays title and highscore
+
+### `StyledButton.java`
+- Extends `JButton` — custom-painted modern button with rounded corners, gradient fill, drop shadow
+- **Hover animation:** smooth color transition to brighter shade via Swing `Timer` (12ms ticks)
+- **Press feedback:** darker color on mouse press
+- **Glow border:** semi-transparent border appears on hover
+- **Text rendering:** centered text with drop shadow for depth
+- `setBaseColor(Color)` — changes the button's color scheme dynamically
+- Used throughout MainPanel, OptionsPanel, and GamePanel (restart button)
+
+### `EatEffect.java`
+- Particle burst animation when a cell is eaten
+- Spawns 6–16 colored particles radiating outward from the eat point
+- Particles have randomized angles, speeds, and sizes based on the eaten cell's radius
+- Fades out over 25 ticks (250ms) with quadratic alpha decay
+- `update()` advances animation; `draw(Graphics2D)` renders particles; `finished` flag when done
+
+### `ContactEffect.java`
+- Curvy ripple arc animation at cell contact points
+- **Division contact mode** (isDivisionContact=true): 4 pulsing arcs, 40 ticks, used during division buildup
+- **Bounce mode** (isDivisionContact=false): 3 arcs, 20 ticks, used when touching an uneatable cell
+- Arcs are quadratic bezier curves radiating outward with expanding spread
+- Division mode has pulsing color brightness; bounce mode uses solid color
 
 ---
 
@@ -282,19 +319,16 @@ celllist.remove(i);
 // Area-based: r3 = sqrt(r1^2 + r2^2) — total area is conserved
 double newRad = Math.sqrt(playerCell.cellRad * playerCell.cellRad + eatenRad * eatenRad);
 playerCell.cellRad = newRad;
-// Score rounds up: hud.score += (int) Math.ceil(eatenRad);
+// Score = current radius: hud.score = (int) Math.ceil(playerCell.cellRad);
 ```
 
-### Dynamic Speed Formula (area-based)
+### Fixed Speed
 ```java
 // Applied every tick in runGameThread (unless devSpeedOverride is true)
-// Speed scales with area ratio: speed ∝ (initialArea / currentArea)
-double ratio = INITIAL_RAD / playerCell.cellRad;
-double dynSpeed = Math.max(MIN_SPEED, BASE_SPEED * ratio * ratio);
-playerCell.speedX = dynSpeed;
-playerCell.speedY = dynSpeed;
-// BASE_SPEED=7, INITIAL_RAD=2, MIN_SPEED=3
-// e.g. rad=2 → speed=7, rad=2.83 → speed=3.5, rad=3.06 → speed=3 (min)
+// Speed is constant — no scaling with size
+playerCell.speedX = DEFAULT_SPEED;  // DEFAULT_SPEED = 3
+playerCell.speedY = DEFAULT_SPEED;
+// Dev log speed override still allows manual speed changes for debugging
 ```
 
 ### No-overlap Spawn
@@ -329,13 +363,13 @@ public static Color[] colors = {BLACK, BLUE, CYAN, DARK_GRAY, GRAY, GREEN, LIGHT
 4. **Food cell radius:** determined by fixed three-tier categories — Small (90%, radius 1), Medium (7%, radius 2–5), Large (3%, radius 5–10). Use `randomFoodRadius()` for all spawns. These values cannot be changed in-game.
 5. **Spawn positions use world coordinates** — random in `[SPAWN_BORDER=40, WORLD_WIDTH - SPAWN_BORDER]` × `[SPAWN_BORDER, WORLD_HEIGHT - SPAWN_BORDER]`.
 6. **All new food cell spawns go through `generateNonOverlappingCell()`** — never place cells directly without the overlap check (checks player, food cells, and NPCs).
-7. **Area-based growth** — `newRad = sqrt(r1² + r2²)`; all cell radii are `double`; score uses `(int) Math.ceil(eatenRad)`.
+7. **Area-based growth** — `newRad = sqrt(r1² + r2²)`; all cell radii are `double`; score = `(int) Math.ceil(currentRadius)` (radius-based, not cumulative).
 8. **Anti-aliasing must be enabled** at the top of `paintComponent` and inside `Cell.drawCell` via `RenderingHints.VALUE_ANTIALIAS_ON`.
 9. **Assets live in `src/`** alongside Java files — do not create a separate `resources/` directory without updating the build setup.
 10. **No external libraries** — the project has no dependency manager; do not add third-party JARs without establishing a build system first.
 11. **All game threads are daemon threads** — they terminate automatically when the JVM exits.
 12. **`paused` and `gameOver` flags must be `volatile`** — they are written by the Swing EDT (key events, dialog close, game end) and read by the game thread.
-13. **Score increases by eaten cell's radius** — `hud.score += (int) Math.ceil(eatenRad)`. NPCs also track score the same way.
+13. **Score equals current radius** — `hud.score = (int) Math.ceil(playerCell.cellRad)`. NPCs also set `score = ceil(cell.cellRad)`. On death/division, score is frozen at the radius at that moment.
 14. **NPC count minimum is 3** — enforced in `MainPanel` via `Math.max(3, ...)` on user input.
 15. **NPC names must be unique** — use a `Set<String>` of used names when spawning NPCs to avoid duplicates.
 16. **NPC `update()` requires navigation context** — always call `npc.update(playerCell, npcList, celllist)` with player, NPC list, and food list so navigation AI can detect threats and prey.
@@ -347,6 +381,11 @@ public static Color[] colors = {BLACK, BLUE, CYAN, DARK_GRAY, GRAY, GREEN, LIGHT
 22. **Food cells are immutable** — food cells cannot move, cannot eat other cells, and their category distribution (Small 90% / Medium 7% / Large 3%) cannot be changed in-game. Density is configurable.
 24. **All cell radii are `double`** — `cellRad`, `x`, `y`, `speedX`, `speedY` are all `double` in `Cell.java`; cast to `int` only for rendering (`Math.round()` for `drawCell`/`fillOval`).
 23. **NPC AI has intentional imperfection** — `ERROR_CHANCE` (8%), `STEER_JITTER` (0.45 rad), and `MOOD_CHANGE_CHANCE` (0.5%) parameters make NPCs behave less robotically; do not remove these without team agreement.
+25. **Use `StyledButton` for all buttons** — never use plain `JButton` in UI panels; `StyledButton` provides consistent modern look with hover/press animations.
+26. **Fixed speed for all cells** — `DEFAULT_SPEED = 3` for both player and NPCs; dev log speed override is preserved for debugging but dynamic speed scaling has been removed.
+27. **Visual effects use `CopyOnWriteArrayList`** — `eatEffects`, `contactEffects`, and `divisionEffects` are thread-safe lists updated in the game thread and drawn in `paintComponent`.
+28. **Ambient sounds return `SourceDataLine`** — callers must call `stop()`/`close()` on the returned line when leaving the panel or ending the game to avoid audio resource leaks.
+29. **Menu panels use animated backgrounds** — `MainPanel` and `OptionsPanel` use Swing `Timer` at 30ms for gradient animation; timer must be stopped when navigating away.
 
 ---
 
