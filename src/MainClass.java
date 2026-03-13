@@ -25,6 +25,7 @@ public class MainClass extends JFrame
     public MainPanel mainPanel;
     public OptionsPanel optionsPanel;
     public GamePanel gamePanel;
+    public WorldSettingsPanel worldSettingsPanel;
 
     public MainClass()
     {

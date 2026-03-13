@@ -7,8 +7,7 @@ import java.awt.*;
  * SOUND button toggles all game sounds on/off
  * COLOR button cycles through available player cell colors
  * FULLSCREEN button toggles between fullscreen and windowed mode
- * WORLD SIZE fields allow changing the world dimensions
- * CELL DENSITY field controls how many food cells spawn based on world area
+ * World size and cell density settings have moved to WorldSettingsPanel
  * @author Kamil Yunus Ozkaya
  */
 public class OptionsPanel extends JPanel {
@@ -27,13 +26,6 @@ public class OptionsPanel extends JPanel {
     // Small panel showing the currently selected player cell color
     private JPanel colorPreview = new JPanel();
 
-    // World dimension input fields
-    private JTextField tfWorldWidth;
-    private JTextField tfWorldHeight;
-    private StyledButton applyWorldButton = new StyledButton("APPLY", new Color(50, 90, 130));
-    // Cell density input field
-    private JTextField tfCellDensity;
-    private StyledButton applyDensityButton = new StyledButton("APPLY", new Color(50, 90, 130));
 
     /** Phase for animated background gradient */
     private float bgPhase = 0f;
@@ -69,49 +61,9 @@ public class OptionsPanel extends JPanel {
                 centerY - MainClass.BUTTON_HEIGHT + 5,
                 btnW, btnH);
 
-        // World size section
-        JLabel worldLabel = new JLabel("World Size:");
-        worldLabel.setForeground(new Color(180, 200, 240));
-        worldLabel.setFont(new Font("SansSerif", Font.BOLD, 14));
-        worldLabel.setBounds(centerX - btnW / 2, centerY + MainClass.BUTTON_HEIGHT + 15, 100, 25);
-
-        tfWorldWidth = new JTextField(String.valueOf(MainClass.WORLD_WIDTH));
-        styleTextField(tfWorldWidth);
-        tfWorldWidth.setBounds(centerX - btnW / 2 + 100, centerY + MainClass.BUTTON_HEIGHT + 15, 65, 28);
-
-        JLabel xLabel = new JLabel(" x ");
-        xLabel.setForeground(new Color(180, 200, 240));
-        xLabel.setFont(new Font("SansSerif", Font.BOLD, 14));
-        xLabel.setBounds(centerX - btnW / 2 + 167, centerY + MainClass.BUTTON_HEIGHT + 15, 20, 25);
-
-        tfWorldHeight = new JTextField(String.valueOf(MainClass.WORLD_HEIGHT));
-        styleTextField(tfWorldHeight);
-        tfWorldHeight.setBounds(centerX - btnW / 2 + 187, centerY + MainClass.BUTTON_HEIGHT + 15, 65, 28);
-
-        applyWorldButton.setFont(new Font("SansSerif", Font.BOLD, 11));
-        applyWorldButton.setBounds(centerX - btnW / 2 + 260, centerY + MainClass.BUTTON_HEIGHT + 13, 90, 30);
-
-        // Cell density section
-        JLabel densityLabel = new JLabel("Cell Density:");
-        densityLabel.setForeground(new Color(180, 200, 240));
-        densityLabel.setFont(new Font("SansSerif", Font.BOLD, 14));
-        densityLabel.setBounds(centerX - btnW / 2, centerY + MainClass.BUTTON_HEIGHT + 55, 110, 25);
-
-        tfCellDensity = new JTextField(String.format("%.2f", GamePanel.cellDensity));
-        styleTextField(tfCellDensity);
-        tfCellDensity.setBounds(centerX - btnW / 2 + 110, centerY + MainClass.BUTTON_HEIGHT + 55, 65, 28);
-
-        JLabel densityHint = new JLabel("cells/M px");
-        densityHint.setForeground(new Color(140, 160, 190));
-        densityHint.setFont(new Font("SansSerif", Font.PLAIN, 11));
-        densityHint.setBounds(centerX - btnW / 2 + 180, centerY + MainClass.BUTTON_HEIGHT + 55, 80, 25);
-
-        applyDensityButton.setFont(new Font("SansSerif", Font.BOLD, 11));
-        applyDensityButton.setBounds(centerX - btnW / 2 + 260, centerY + MainClass.BUTTON_HEIGHT + 53, 90, 30);
-
         backButton.setBounds(
                 centerX - btnW / 2,
-                centerY + 3 * MainClass.BUTTON_HEIGHT + 30,
+                centerY + MainClass.BUTTON_HEIGHT + 15,
                 btnW, btnH);
 
         // Color preview square placed to the right of the COLOR button
@@ -127,15 +79,6 @@ public class OptionsPanel extends JPanel {
         add(colorButton);
         add(fullscreenButton);
         add(colorPreview);
-        add(worldLabel);
-        add(tfWorldWidth);
-        add(xLabel);
-        add(tfWorldHeight);
-        add(applyWorldButton);
-        add(densityLabel);
-        add(tfCellDensity);
-        add(densityHint);
-        add(applyDensityButton);
 
         // Start background animation
         bgTimer = new Timer(30, e -> {
@@ -187,67 +130,9 @@ public class OptionsPanel extends JPanel {
             mainClass.optionsPanel.requestFocusInWindow();
         });
 
-        // APPLY WORLD SIZE button: update world dimensions
-        applyWorldButton.addActionListener(arg0 -> {
-            Sound.playClickSound();
-            try {
-                int w = Integer.parseInt(tfWorldWidth.getText().trim());
-                int h = Integer.parseInt(tfWorldHeight.getText().trim());
-                if (w >= 800 && h >= 600) {
-                    MainClass.WORLD_WIDTH = w;
-                    MainClass.WORLD_HEIGHT = h;
-                    StyledDialog.showMessageDialog(mainClass,
-                        "World size set to " + w + " x " + h + ".<br>Changes apply to the next game.",
-                        "World Size Updated", false);
-                } else {
-                    StyledDialog.showMessageDialog(mainClass,
-                        "Minimum world size is 800 x 600.",
-                        "Invalid Size", true);
-                }
-            } catch (NumberFormatException ex) {
-                StyledDialog.showMessageDialog(mainClass,
-                    "Please enter valid numbers for width and height.",
-                    "Invalid Input", true);
-            }
-        });
-
-        // APPLY DENSITY button: update cell density
-        applyDensityButton.addActionListener(arg0 -> {
-            Sound.playClickSound();
-            try {
-                double d = Double.parseDouble(tfCellDensity.getText().trim());
-                if (d > 0) {
-                    GamePanel.cellDensity = d;
-                    double worldArea = (double) MainClass.WORLD_WIDTH * MainClass.WORLD_HEIGHT / 1_000_000.0;
-                    int maxCells = Math.max(5, (int) Math.round(d * worldArea));
-                    StyledDialog.showMessageDialog(mainClass,
-                        "Cell density set to " + String.format("%.2f", d) + " cells/M px.<br>" +
-                        "Max food cells for current world: " + maxCells,
-                        "Cell Density Updated", false);
-                } else {
-                    StyledDialog.showMessageDialog(mainClass,
-                        "Density must be a positive number.",
-                        "Invalid Density", true);
-                }
-            } catch (NumberFormatException ex) {
-                StyledDialog.showMessageDialog(mainClass,
-                    "Please enter a valid number for density.",
-                    "Invalid Input", true);
-            }
-        });
 
     }
 
-    /** Styles a text field to match the dark modern theme */
-    private void styleTextField(JTextField tf) {
-        tf.setFont(new Font("SansSerif", Font.PLAIN, 13));
-        tf.setBackground(new Color(40, 45, 60));
-        tf.setForeground(Color.WHITE);
-        tf.setCaretColor(Color.WHITE);
-        tf.setBorder(BorderFactory.createCompoundBorder(
-            BorderFactory.createLineBorder(new Color(70, 80, 110)),
-            BorderFactory.createEmptyBorder(3, 6, 3, 6)));
-    }
 
     @Override
     protected void paintComponent(Graphics g)

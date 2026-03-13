@@ -56,28 +56,13 @@ public class MainPanel extends JPanel
 
         startButton.addActionListener(arg0 -> {
             Sound.playClickSound();
-            // Ask the player for a name before starting the game
-            String name = StyledDialog.showInputDialog(mainClass, "Enter your name:", "Player");
-            if (name == null || name.trim().isEmpty()) name = "Player";
-            GamePanel.playerName = name.trim();
-
-            // Ask for NPC count (minimum 3)
-            String npcInput = StyledDialog.showInputDialog(mainClass,
-                "Number of NPC players (minimum 3):", "3");
-            int npcCount = 3;
-            if (npcInput != null) {
-                try {
-                    npcCount = Math.max(3, Integer.parseInt(npcInput.trim()));
-                } catch (NumberFormatException ignored) {}
-            }
-
             stopAmbient();
-            mainClass.gamePanel = new GamePanel(mainClass, npcCount);
+            mainClass.worldSettingsPanel = new WorldSettingsPanel(mainClass);
             mainClass.getContentPane().removeAll();
-            mainClass.getContentPane().add(mainClass.gamePanel);
+            mainClass.getContentPane().add(mainClass.worldSettingsPanel);
             mainClass.revalidate();
             mainClass.repaint();
-            mainClass.gamePanel.requestFocusInWindow();
+            mainClass.worldSettingsPanel.requestFocusInWindow();
         });
 
         optionsButton.addActionListener(arg0 -> {

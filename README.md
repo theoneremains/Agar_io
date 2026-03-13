@@ -27,9 +27,11 @@ Controls: **WASD** or **Arrow Keys** to move, **ESC** to return to the main menu
 - **No-overlap spawning** — new cells guaranteed not to appear on top of existing cells
 - **Area-based growth** — eating a cell conserves total area (`r3 = sqrt(r1² + r2²)`)
 - **Anti-aliased rendering** — all cells drawn with smooth, round edges
-- **Player name** — enter your name before each game; displayed centered inside your cell
+- **World Settings panel** — configure player name, NPC count, world dimensions, and cell density before each game; replaces the old separate input dialogs
+- **Save/Load system** — save up to 3 configuration presets to files; load, rename, or overwrite saves; restore defaults with one click
+- **Player name** — enter your name in World Settings; displayed centered inside your cell
 - **NPC difficulty system** — NPCs have EASY, MEDIUM, or HARD difficulty; affects error rate, vision range, steering jitter, mood stability, and food-seeking aggression; distributed equally in round-robin
-- **NPC opponents with navigation AI** — AI-controlled cells that intelligently flee from bigger cells and chase smaller ones; choose NPC count (minimum 3) when starting
+- **NPC opponents with navigation AI** — AI-controlled cells that intelligently flee from bigger cells and chase smaller ones; choose NPC count (minimum 3) in World Settings
 - **Live scoreboard** — top-right corner shows all players ranked by score with difficulty tags [E]/[M]/[H]
 - **Game over screen** — final standings, time played, and styled RESTART button
 - **Sound effects** — eat bloop, division rise tone, bounce wobble, and UI click sounds; all programmatic
@@ -40,8 +42,6 @@ Controls: **WASD** or **Arrow Keys** to move, **ESC** to return to the main menu
   - **SOUND** — toggle sounds on/off (button color changes dynamically)
   - **COLOR** — cycle through available player cell colors
   - **FULLSCREEN** — toggle fullscreen/windowed mode
-  - **WORLD SIZE** — set custom world width and height
-  - **CELL DENSITY** — adjust food cell density
 
 ## Installation & Running
 
