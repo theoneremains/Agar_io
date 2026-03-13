@@ -96,6 +96,12 @@ public class GamePanel extends JPanel implements KeyListener {
     /** When true the game has ended (all NPCs eliminated or player eaten) */
     public volatile boolean gameOver = false;
 
+    /** When true, the easter egg is playing and player actions are frozen */
+    private volatile boolean easterEggActive = false;
+
+    /** Saved elapsed time (ms) at the moment the game is won / player dies, before easter egg resets timer */
+    private long finalElapsedTime = -1;
+
     /** When true, skip automatic speed recalculation (dev override active) */
     public boolean devSpeedOverride = false;
 
@@ -343,38 +349,42 @@ public class GamePanel extends JPanel implements KeyListener {
 
                         hud.getElapsedTime(); // Each time thread executed, we get the elapsed time
 
-                        // Player eats food cells
-                        for (int i = 0; i < celllist.size(); i++) {
-                            if (playerCell.isCollision(playerCell, celllist.get(i))) {
-                                double eatenRad = celllist.get(i).cellRad;
-                                double eatCX = celllist.get(i).x + eatenRad;
-                                double eatCY = celllist.get(i).y + eatenRad;
-                                Color eatColor = celllist.get(i).cellColor;
-                                celllist.remove(i);
-                                Sound.playEatSound();
-                                eatEffects.add(new EatEffect(eatCX, eatCY, eatenRad, eatColor));
-                                double newRad = Math.sqrt(playerCell.cellRad * playerCell.cellRad + eatenRad * eatenRad);
-                                playerCell.cellRad = newRad;
-                                // Score = 10x current radius (updated after growth)
-                                hud.score = (int) Math.ceil(playerCell.cellRad * 10);
-                                if (hud.score > highscore) highscore = hud.score;
+                        // Player eats food cells (disabled during easter egg)
+                        if (!easterEggActive) {
+                            for (int i = 0; i < celllist.size(); i++) {
+                                if (playerCell.isCollision(playerCell, celllist.get(i))) {
+                                    double eatenRad = celllist.get(i).cellRad;
+                                    double eatCX = celllist.get(i).x + eatenRad;
+                                    double eatCY = celllist.get(i).y + eatenRad;
+                                    Color eatColor = celllist.get(i).cellColor;
+                                    celllist.remove(i);
+                                    Sound.playEatSound();
+                                    eatEffects.add(new EatEffect(eatCX, eatCY, eatenRad, eatColor));
+                                    double newRad = Math.sqrt(playerCell.cellRad * playerCell.cellRad + eatenRad * eatenRad);
+                                    playerCell.cellRad = newRad;
+                                    // Score = 10x current radius (updated after growth)
+                                    hud.score = (int) Math.ceil(playerCell.cellRad * 10);
+                                    if (hud.score > highscore) highscore = hud.score;
+                                }
                             }
                         }
 
-                        // Player eats NPC cells (player bigger than NPC)
-                        for (NPC npc : npcList) {
-                            if (npc.alive && playerCell.isCollision(playerCell, npc.cell)) {
-                                double eatenRad = npc.cell.cellRad;
-                                double eatCX = npc.cell.x + eatenRad;
-                                double eatCY = npc.cell.y + eatenRad;
-                                npc.alive = false;
-                                npc.score = (int) Math.ceil(npc.cell.cellRad * 10); // final score = 10x radius at death
-                                Sound.playEatSound();
-                                eatEffects.add(new EatEffect(eatCX, eatCY, eatenRad, npc.cell.cellColor));
-                                double newRad = Math.sqrt(playerCell.cellRad * playerCell.cellRad + eatenRad * eatenRad);
-                                playerCell.cellRad = newRad;
-                                hud.score = (int) Math.ceil(playerCell.cellRad * 10);
-                                if (hud.score > highscore) highscore = hud.score;
+                        // Player eats NPC cells (player bigger than NPC; disabled during easter egg)
+                        if (!easterEggActive) {
+                            for (NPC npc : npcList) {
+                                if (npc.alive && playerCell.isCollision(playerCell, npc.cell)) {
+                                    double eatenRad = npc.cell.cellRad;
+                                    double eatCX = npc.cell.x + eatenRad;
+                                    double eatCY = npc.cell.y + eatenRad;
+                                    npc.alive = false;
+                                    npc.score = (int) Math.ceil(npc.cell.cellRad * 10); // final score = 10x radius at death
+                                    Sound.playEatSound();
+                                    eatEffects.add(new EatEffect(eatCX, eatCY, eatenRad, npc.cell.cellColor));
+                                    double newRad = Math.sqrt(playerCell.cellRad * playerCell.cellRad + eatenRad * eatenRad);
+                                    playerCell.cellRad = newRad;
+                                    hud.score = (int) Math.ceil(playerCell.cellRad * 10);
+                                    if (hud.score > highscore) highscore = hud.score;
+                                }
                             }
                         }
 
@@ -420,6 +430,9 @@ public class GamePanel extends JPanel implements KeyListener {
                             if (npc.cell.isCollision(npc.cell, playerCell)) {
                                 // Player is eaten — set final score = 10x radius, game over
                                 hud.score = (int) Math.ceil(playerCell.cellRad * 10);
+                                // Save the actual elapsed time at the moment of death
+                                hud.getElapsedTime();
+                                finalElapsedTime = hud.elapsedTime;
                                 npc.grow((double) playerCell.cellRad);
                                 eatEffects.add(new EatEffect(
                                     playerCell.x + playerCell.cellRad, playerCell.y + playerCell.cellRad,
@@ -583,6 +596,13 @@ public class GamePanel extends JPanel implements KeyListener {
                             }
                             if (allNpcsDead) {
                                 mus++;
+                                // Save the actual game completion time before easter egg resets it
+                                hud.getElapsedTime();
+                                finalElapsedTime = hud.elapsedTime;
+                                // Freeze player score at the moment of winning
+                                hud.score = (int) Math.ceil(playerCell.cellRad * 10);
+                                if (hud.score > highscore) highscore = hud.score;
+                                easterEggActive = true;
                                 hud.resetTime();
                                 music.playSound();
                                 // Wait for music to finish (~20 seconds), then end the game
@@ -767,7 +787,8 @@ public class GamePanel extends JPanel implements KeyListener {
         g2d.setColor(Color.BLUE);
         g2d.setFont(new Font("", Font.PLAIN, 12));
         g2d.drawString("Score " + hud.score, 10, 20);
-        g2d.drawString("Elapsed Time " + hud.elapsedTime / 1000, 490, 20);
+        long displayElapsed = finalElapsedTime >= 0 ? finalElapsedTime : hud.elapsedTime;
+        g2d.drawString("Elapsed Time " + displayElapsed / 1000, 490, 20);
 
         // Draw scoreboard in top-right corner
         drawScoreboard(g2d);
@@ -902,10 +923,11 @@ public class GamePanel extends JPanel implements KeyListener {
             rank++;
         }
 
-        // Player's final time
+        // Player's final time (use saved time to avoid easter egg timer reset)
+        long displayTime = finalElapsedTime >= 0 ? finalElapsedTime : hud.elapsedTime;
         g2d.setColor(new Color(180, 220, 255));
         g2d.setFont(new Font("Arial", Font.PLAIN, 16));
-        String timeStr = "Time played: " + hud.elapsedTime / 1000 + " seconds";
+        String timeStr = "Time played: " + displayTime / 1000 + " seconds";
         FontMetrics fm2 = g2d.getFontMetrics();
         g2d.drawString(timeStr, (MainClass.SCREEN_WIDTH - fm2.stringWidth(timeStr)) / 2, y + 20);
     }
