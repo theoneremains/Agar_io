@@ -3,16 +3,30 @@ AIU Hackathon group project — Agar.io clone made with Java
 Group Members : Kamil Yunus Özkaya, Mert Efe Sevim, Ahmet Kurt
 
 ## How to Play
-You are a circular cell. To eat another cell, your area must be at least **twice** theirs. If you're bigger but lack 2x area, holding contact for 2 seconds will **divide** the cell into two halves — one you can control, one becomes food.
-Compete against NPC players who also move, eat, and grow. Eliminate all NPCs to win! Aim is to get the highest score!
+You are a circular cell. To eat another cell, your area must be at least **twice** theirs. If you're bigger but lack 2x area, overlapping the smaller cell will **shave** (erode) it — chipping away its mass based on how much you overlap and how fast you're moving. The shaved debris falls off as small food cells at the contact point. Keep pressure on to whittle them down!
 
-Controls: **WASD** or **Arrow Keys** to move, **ESC** to return to the main menu, **Ctrl+I** (or **Cmd+I** on macOS) to open the developer log.
+As you grow, you'll earn **upgrades** at score milestones — choose from 3 random options each time:
+- **Speed Boost** — move faster
+- **Size Surge** — instant size increase
+- **Regeneration** — slowly recover lost size over time
+- **Split Shield** — reduce shave damage taken
+- **Magnet** — nearby food drifts toward you
+- **Bountiful World** — more food spawns globally
+- **Big Feast** — larger food cells appear
+- **Dodge [EPIC]** — press **SPACE** to dash (one-time unlock)
+
+**NPCs also get upgrades** — when they cross the same score thresholds, they automatically receive a random upgrade from Speed Boost, Size Surge, Regeneration, or Split Shield. Upgraded NPCs display a gold ★ badge.
+
+Compete against NPC players who also move, eat, grow, and upgrade. Eliminate all NPCs to win! Aim for the highest score!
+
+Controls: **WASD** or **Arrow Keys** to move, **SPACE** to dodge (if unlocked), **ESC** to return to the main menu, **Ctrl+I** (or **Cmd+I** on macOS) to open the developer log.
 
 ## Features
 - **Modern UI** — styled buttons with rounded corners, gradient fills, hover glow, and press animations; dark themed animated gradient backgrounds with floating translucent circles; modern styled dialogs replacing system message boxes
 - **Ambient sounds** — soothing synthesized pad music in the main menu; evolving pentatonic chord progression during gameplay; all programmatically generated
+- **Roguelite upgrades** — 8 upgrade types awarded at score thresholds; choose 1 of 3 random options each time; NPCs also receive upgrades automatically
 - **Eat animation** — colored particle burst at the point of consumption
-- **Division animation** — curvy bezier split animation with pulsing ripple arcs during 2-second buildup; divided cells appear far from the divider for escape room
+- **Shave (erosion) mechanic** — cells slightly larger than others erode them on contact; damage scales with overlap depth and speed; debris spawns as food at the contact point; replaces the old 2-second division system
 - **Bounce animation** — curvy ripple effect with bounce sound when touching an uneatable cell
 - **Button hover effects** — smooth color transitions between resting, hover, and pressed states
 - **10x radius scoring** — score equals 10 times the cell's current radius; on death/division, score freezes
@@ -21,7 +35,7 @@ Controls: **WASD** or **Arrow Keys** to move, **ESC** to return to the main menu
 - **Configurable world dimensions** — change world size in Options (default 3840 × 2160); minimum 800 × 600
 - **Cell density** — controls how many food cells spawn based on world area; configurable in Options and Dev Log
 - **Dynamic camera zoom** — camera starts zoomed in so small cells are clearly visible; smoothly zooms out as the player grows larger
-- **Cell division** — cells bigger but lacking 2x area advantage divide the target after 2 seconds of sustained contact; two halves split far apart perpendicular to the contact direction
+- **Cell shaving** — cells bigger but lacking 2x area advantage continuously erode the target's mass on contact; faster cells deal more shave damage; debris spawns as food
 - Camera follows the player cell with smooth lerp
 - **Toroidal world wrapping** — move off any edge and emerge from the opposite side seamlessly
 - **No-overlap spawning** — new cells guaranteed not to appear on top of existing cells

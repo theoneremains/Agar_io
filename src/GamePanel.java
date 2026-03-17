@@ -125,8 +125,8 @@ public class GamePanel extends JPanel implements KeyListener {
     public int regenLevel = 0;
 
     /**
-     * Factor of radius retained when the player is divided.
-     * Default equals {@code 1/√2}; increases with Split Shield upgrades.
+     * Shave damage multiplier for the player (1.0 = full damage, lower = more resilient).
+     * Decreases with Split Shield upgrades toward {@link GameConstants#SPLIT_SHIELD_MIN}.
      */
     public double splitShieldFactor = GameConstants.SPLIT_SHIELD_BASE;
 
@@ -525,6 +525,7 @@ public class GamePanel extends JPanel implements KeyListener {
             btn.setFont(new Font(GameConstants.FONT_FAMILY, Font.BOLD, 14));
             btn.setBounds(btnX, btnY, btnW, GameConstants.UPGRADE_BTN_HEIGHT);
             btn.setName("upgrade_btn");
+            btn.setFocusable(false);   // prevent stealing keyboard focus from GamePanel
 
             final UpgradeType chosen = type;
             btn.addActionListener(e -> dismissUpgradeSelection(chosen));
@@ -552,6 +553,7 @@ public class GamePanel extends JPanel implements KeyListener {
         }
 
         upgradeSelecting = false;
+        requestFocusInWindow();   // restore keyboard focus lost when buttons were removed
         revalidate();
         repaint();
     }

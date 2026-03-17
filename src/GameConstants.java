@@ -48,9 +48,15 @@ public final class GameConstants {
     public static final double ZOOM_LERP        = 0.03;
     public static final double CAMERA_LERP      = 0.15;
 
-    // ── Division ─────────────────────────────────────────────────────────
-    public static final int DIVISION_CONTACT_TICKS = 200; // 2 seconds at 10ms/tick
-    public static final double DIVISION_SEPARATION = 3.0; // multiplier on radius
+    // ── Shave (erosion-based division) ──────────────────────────────────
+    /** Fraction of overlap depth converted to area loss per tick */
+    public static final double SHAVE_RATE = 0.04;
+    /** Accumulated shaved area needed before a food cell is spawned */
+    public static final double SHAVE_MIN_FOOD_AREA = 0.25;
+    /** Ticks between visual contact effects during shaving */
+    public static final int SHAVE_EFFECT_INTERVAL = 20;
+    /** Minimum overlap depth (px) before shaving starts */
+    public static final double SHAVE_OVERLAP_THRESHOLD = 0.3;
 
     // ── Timing ───────────────────────────────────────────────────────────
     public static final int GAME_TICK_MS       = 10;   // ~100 FPS
@@ -128,12 +134,12 @@ public final class GameConstants {
     /** Radius recovered per tick per Regeneration level */
     public static final double REGEN_RATE_PER_LEVEL = 0.0004;
     // ── Split Shield upgrade ─────────────────────────────────────────────
-    /** Base division factor (radius kept) when no Split Shield — equals 1/√2 */
-    public static final double SPLIT_SHIELD_BASE   = 0.7071067811865476; // 1/sqrt(2)
-    /** Factor added per Split Shield level */
-    public static final double SPLIT_SHIELD_PER_LEVEL = 0.065;
-    /** Maximum factor (can never keep more than this fraction of radius) */
-    public static final double SPLIT_SHIELD_MAX    = 0.93;
+    /** Base shave damage multiplier when no Split Shield (1.0 = full damage) */
+    public static final double SPLIT_SHIELD_BASE       = 1.0;
+    /** Damage multiplier reduction per Split Shield level */
+    public static final double SPLIT_SHIELD_PER_LEVEL  = 0.18;
+    /** Minimum damage multiplier (floor) — can never reduce below this */
+    public static final double SPLIT_SHIELD_MIN        = 0.25;
 
     // ── Utility Methods ──────────────────────────────────────────────────
 

@@ -69,8 +69,8 @@ public class NPC {
     public int regenLevel = 0;
 
     /**
-     * Factor of radius retained when this NPC is divided.
-     * Default is {@code 1/√2} (~0.707); increases with Split Shield upgrades.
+     * Shave damage multiplier for this NPC (1.0 = full damage, lower = more resilient).
+     * Decreases with Split Shield upgrades toward {@link GameConstants#SPLIT_SHIELD_MIN}.
      */
     public double splitShieldFactor = GameConstants.SPLIT_SHIELD_BASE;
 

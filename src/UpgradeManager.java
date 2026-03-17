@@ -101,8 +101,8 @@ public class UpgradeManager {
                 npc.regenLevel++;
                 break;
             case SPLIT_SHIELD:
-                npc.splitShieldFactor = Math.min(GameConstants.SPLIT_SHIELD_MAX,
-                    npc.splitShieldFactor + GameConstants.SPLIT_SHIELD_PER_LEVEL);
+                npc.splitShieldFactor = Math.max(GameConstants.SPLIT_SHIELD_MIN,
+                    npc.splitShieldFactor - GameConstants.SPLIT_SHIELD_PER_LEVEL);
                 break;
             default:
                 break; // player-only upgrades are silently ignored for NPCs
@@ -160,8 +160,8 @@ public class UpgradeManager {
                 game.regenLevel++;
                 break;
             case SPLIT_SHIELD:
-                game.splitShieldFactor = Math.min(GameConstants.SPLIT_SHIELD_MAX,
-                    game.splitShieldFactor + GameConstants.SPLIT_SHIELD_PER_LEVEL);
+                game.splitShieldFactor = Math.max(GameConstants.SPLIT_SHIELD_MIN,
+                    game.splitShieldFactor - GameConstants.SPLIT_SHIELD_PER_LEVEL);
                 break;
             case DODGE:
                 dodgeUnlocked = true;
