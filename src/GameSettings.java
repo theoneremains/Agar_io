@@ -6,11 +6,13 @@ import java.util.*;
  * GameSettings : Manages game configuration with save/load support.
  * Settings are stored as key=value text files in a "saves" directory.
  * Supports up to 3 save slots with rename and default restore capability.
+ * Also manages an automatic "autosave" slot (not counted toward the 3-file limit)
+ * that persists the most recent session's settings across launches.
  * @author Kamil Yunus Ozkaya
  */
 public class GameSettings {
 
-    /** Maximum number of save files allowed */
+    /** Maximum number of user-visible save files allowed */
     public static final int MAX_SAVES = GameConstants.MAX_SAVE_FILES;
 
     /** Directory where save files are stored */
@@ -19,15 +21,29 @@ public class GameSettings {
     /** File extension for save files */
     private static final String SAVE_EXT = GameConstants.SAVE_EXT;
 
+    /**
+     * Reserved save name for automatic persistence of the last session.
+     * This file is excluded from the user-visible save list and the 3-file limit.
+     */
+    public static final String AUTOSAVE_NAME = "autosave";
+
     // Default values
     public static final String DEFAULT_PLAYER_NAME = "Player";
-    public static final int DEFAULT_NPC_COUNT = GameConstants.MIN_NPC_COUNT;
+    public static final int DEFAULT_NPC_COUNT = 10;
     public static final int DEFAULT_WORLD_WIDTH = GameConstants.DEFAULT_WORLD_WIDTH;
     public static final int DEFAULT_WORLD_HEIGHT = GameConstants.DEFAULT_WORLD_HEIGHT;
     public static final double DEFAULT_CELL_DENSITY = GameConstants.DEFAULT_CELL_DENSITY;
     public static final boolean DEFAULT_SOUND_ENABLED = true;
     public static final boolean DEFAULT_FULLSCREEN = true;
     public static final int DEFAULT_PLAYER_COLOR_INDEX = 0;
+
+    // Default NPC difficulty distribution (must sum to DEFAULT_NPC_COUNT)
+    public static final int DEFAULT_NPC_EASY   = 4;
+    public static final int DEFAULT_NPC_MEDIUM = 3;
+    public static final int DEFAULT_NPC_HARD   = 3;
+
+    /** Default shave-rate multiplier (1.0 = standard erosion speed) */
+    public static final double DEFAULT_SHAVE_RATE_MULTIPLIER = 1.0;
 
     // Current settings
     public String playerName = DEFAULT_PLAYER_NAME;
@@ -38,6 +54,14 @@ public class GameSettings {
     public boolean soundEnabled = DEFAULT_SOUND_ENABLED;
     public boolean fullscreen = DEFAULT_FULLSCREEN;
     public int playerColorIndex = DEFAULT_PLAYER_COLOR_INDEX;
+
+    // NPC difficulty distribution (0 = use round-robin based on npcCount)
+    public int npcEasyCount   = DEFAULT_NPC_EASY;
+    public int npcMediumCount = DEFAULT_NPC_MEDIUM;
+    public int npcHardCount   = DEFAULT_NPC_HARD;
+
+    /** Multiplier applied to the shave/erosion rate (configurable in advanced settings) */
+    public double shaveRateMultiplier = DEFAULT_SHAVE_RATE_MULTIPLIER;
 
     /** Creates settings with default values */
     public GameSettings() {}
@@ -52,6 +76,10 @@ public class GameSettings {
         soundEnabled = DEFAULT_SOUND_ENABLED;
         fullscreen = DEFAULT_FULLSCREEN;
         playerColorIndex = DEFAULT_PLAYER_COLOR_INDEX;
+        npcEasyCount   = DEFAULT_NPC_EASY;
+        npcMediumCount = DEFAULT_NPC_MEDIUM;
+        npcHardCount   = DEFAULT_NPC_HARD;
+        shaveRateMultiplier = DEFAULT_SHAVE_RATE_MULTIPLIER;
     }
 
     /**
@@ -73,6 +101,10 @@ public class GameSettings {
             pw.println("soundEnabled=" + soundEnabled);
             pw.println("fullscreen=" + fullscreen);
             pw.println("playerColorIndex=" + playerColorIndex);
+            pw.println("npcEasyCount=" + npcEasyCount);
+            pw.println("npcMediumCount=" + npcMediumCount);
+            pw.println("npcHardCount=" + npcHardCount);
+            pw.println("shaveRateMultiplier=" + shaveRateMultiplier);
             return true;
         } catch (IOException e) {
             e.printStackTrace();
@@ -107,6 +139,10 @@ public class GameSettings {
                         case "soundEnabled": soundEnabled = Boolean.parseBoolean(val); break;
                         case "fullscreen": fullscreen = Boolean.parseBoolean(val); break;
                         case "playerColorIndex": playerColorIndex = Integer.parseInt(val); break;
+                        case "npcEasyCount": npcEasyCount = Math.max(0, Integer.parseInt(val)); break;
+                        case "npcMediumCount": npcMediumCount = Math.max(0, Integer.parseInt(val)); break;
+                        case "npcHardCount": npcHardCount = Math.max(0, Integer.parseInt(val)); break;
+                        case "shaveRateMultiplier": shaveRateMultiplier = Math.max(0.1, Double.parseDouble(val)); break;
                     }
                 } catch (NumberFormatException ignored) {}
             }
@@ -118,7 +154,9 @@ public class GameSettings {
     }
 
     /**
-     * Returns a list of existing save file names (without extension), sorted alphabetically.
+     * Returns a list of existing user save file names (without extension),
+     * sorted by last-modified date (most recent first).
+     * The reserved autosave file is excluded from this list.
      */
     public static List<String> listSaves() {
         List<String> saves = new ArrayList<>();
@@ -126,12 +164,46 @@ public class GameSettings {
         if (!dir.exists()) return saves;
         File[] files = dir.listFiles((d, name) -> name.endsWith(SAVE_EXT));
         if (files == null) return saves;
+        // Exclude the autosave slot
         for (File f : files) {
             String name = f.getName();
-            saves.add(name.substring(0, name.length() - SAVE_EXT.length()));
+            String baseName = name.substring(0, name.length() - SAVE_EXT.length());
+            if (!baseName.equals(AUTOSAVE_NAME)) {
+                saves.add(baseName);
+            }
         }
         Collections.sort(saves);
         return saves;
+    }
+
+    /**
+     * Returns the name of the most recently modified user save file (without extension),
+     * or {@code null} if no user saves exist.
+     */
+    public static String getMostRecentSave() {
+        File dir = new File(SAVES_DIR);
+        if (!dir.exists()) return null;
+        File[] files = dir.listFiles((d, name) -> name.endsWith(SAVE_EXT));
+        if (files == null || files.length == 0) return null;
+
+        File newest = null;
+        for (File f : files) {
+            String baseName = f.getName().substring(0, f.getName().length() - SAVE_EXT.length());
+            if (baseName.equals(AUTOSAVE_NAME)) continue; // skip reserved
+            if (newest == null || f.lastModified() > newest.lastModified()) {
+                newest = f;
+            }
+        }
+        if (newest == null) return null;
+        String name = newest.getName();
+        return name.substring(0, name.length() - SAVE_EXT.length());
+    }
+
+    /**
+     * Returns true if the autosave file exists.
+     */
+    public static boolean autosaveExists() {
+        return new File(SAVES_DIR, AUTOSAVE_NAME + SAVE_EXT).exists();
     }
 
     /**
@@ -169,6 +241,12 @@ public class GameSettings {
         MainClass.WORLD_HEIGHT = worldHeight;
         Sound.soundEnabled = soundEnabled;
         MainClass.fullscreen = fullscreen;
+        // NPC difficulty distribution
+        GamePanel.npcEasyCount   = npcEasyCount;
+        GamePanel.npcMediumCount = npcMediumCount;
+        GamePanel.npcHardCount   = npcHardCount;
+        // Shave rate multiplier
+        GamePanel.shaveRateMultiplier = shaveRateMultiplier;
     }
 
     /**
@@ -182,5 +260,9 @@ public class GameSettings {
         worldHeight = MainClass.WORLD_HEIGHT;
         soundEnabled = Sound.soundEnabled;
         fullscreen = MainClass.fullscreen;
+        npcEasyCount   = GamePanel.npcEasyCount;
+        npcMediumCount = GamePanel.npcMediumCount;
+        npcHardCount   = GamePanel.npcHardCount;
+        shaveRateMultiplier = GamePanel.shaveRateMultiplier;
     }
 }

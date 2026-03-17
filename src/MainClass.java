@@ -7,6 +7,7 @@ import java.awt.*;
  * Supports fullscreen mode (default) with configurable world dimensions.
  * @author Kamil Yunus Özkaya
  */
+@SuppressWarnings({"serial", "this-escape"})
 public class MainClass extends JFrame {
 
     public static int SCREEN_WIDTH  = GameConstants.DEFAULT_SCREEN_WIDTH;
@@ -14,11 +15,6 @@ public class MainClass extends JFrame {
 
     public static int WORLD_WIDTH  = GameConstants.DEFAULT_WORLD_WIDTH;
     public static int WORLD_HEIGHT = GameConstants.DEFAULT_WORLD_HEIGHT;
-
-    /** @deprecated Use {@link GameConstants#BUTTON_WIDTH} */
-    public static int BUTTON_WIDTH  = GameConstants.BUTTON_WIDTH;
-    /** @deprecated Use {@link GameConstants#BUTTON_HEIGHT} */
-    public static int BUTTON_HEIGHT = GameConstants.BUTTON_HEIGHT;
 
     /** Whether the game is running in fullscreen mode */
     public static boolean fullscreen = true;

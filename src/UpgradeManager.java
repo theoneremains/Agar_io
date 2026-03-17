@@ -6,10 +6,12 @@ import java.util.*;
  *
  * <p>For the <strong>player</strong>: watches score thresholds, shows 3 random
  * choices via {@link GamePanel#showUpgradeSelection()}, and applies the chosen
- * upgrade to the live game state.
+ * upgrade to the live game state.  Kill-based upgrades can also be triggered
+ * immediately by {@link #triggerKillUpgrade()}.
  *
  * <p>For <strong>NPCs</strong>: same threshold tracking, but upgrades are applied
  * automatically and silently via {@link #checkAndAutoApplyForNPC}.
+ * When an NPC kills another NPC, {@link #triggerNPCKillUpgrade} applies a bonus upgrade.
  *
  * <p>Adding a new upgrade requires only:
  * <ol>
@@ -40,6 +42,12 @@ public class UpgradeManager {
     private boolean dodgeUnlocked = false;
     private final Random random = new Random();
 
+    /**
+     * Tracks how many times each upgrade type has been applied to the player.
+     * Used by {@link GameRenderer} to display a compact upgrade history.
+     */
+    private final Map<UpgradeType, Integer> appliedCounts = new EnumMap<>(UpgradeType.class);
+
     // ── Player Score Checking ────────────────────────────────────────────
 
     /**
@@ -57,6 +65,20 @@ public class UpgradeManager {
             upgradeReady = true;
             currentChoices = pickPlayerChoices();
         }
+    }
+
+    // ── Kill-based Upgrade (Player) ──────────────────────────────────────
+
+    /**
+     * Immediately marks an upgrade as ready (bypassing score thresholds) so the
+     * player is offered a choice after killing an NPC.
+     * No-op when an upgrade is already pending.
+     */
+    public void triggerKillUpgrade() {
+        if (upgradeReady) return;
+        upgradeReady = true;
+        currentChoices = pickPlayerChoices();
+        // Note: nextThresholdIndex is NOT incremented — score thresholds are preserved.
     }
 
     // ── NPC Auto-Upgrade ─────────────────────────────────────────────────
@@ -77,6 +99,19 @@ public class UpgradeManager {
             if (!choices.isEmpty()) {
                 applyNPCUpgrade(choices.get(random.nextInt(choices.size())), npc);
             }
+        }
+    }
+
+    /**
+     * Immediately applies a random NPC-eligible upgrade to an NPC as a bonus for
+     * killing another NPC.  Does not consume a score threshold slot.
+     *
+     * @param npc the NPC that made the kill
+     */
+    public void triggerNPCKillUpgrade(NPC npc) {
+        List<UpgradeType> choices = pickNPCChoices();
+        if (!choices.isEmpty()) {
+            applyNPCUpgrade(choices.get(random.nextInt(choices.size())), npc);
         }
     }
 
@@ -121,6 +156,14 @@ public class UpgradeManager {
     /** @return true once the player has selected the Dodge upgrade */
     public boolean hasDodge() { return dodgeUnlocked; }
 
+    /**
+     * Returns a read-only view of how many times each upgrade type has been
+     * applied to the player.  Used by GameRenderer for the upgrade history panel.
+     */
+    public Map<UpgradeType, Integer> getAppliedCounts() {
+        return Collections.unmodifiableMap(appliedCounts);
+    }
+
     // ── Apply Player Upgrade ─────────────────────────────────────────────
 
     /**
@@ -133,6 +176,9 @@ public class UpgradeManager {
     public void applyUpgrade(UpgradeType type, GamePanel game) {
         upgradeReady = false;
         currentChoices.clear();
+
+        // Track applied count for HUD display
+        appliedCounts.merge(type, 1, Integer::sum);
 
         switch (type) {
             case SPEED_BOOST:

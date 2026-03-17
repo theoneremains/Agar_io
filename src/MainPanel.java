@@ -8,6 +8,7 @@ import java.awt.*;
  * Features an animated gradient background and ambient menu sound.
  * @author Kamil Yunus Ozkaya
  */
+@SuppressWarnings({"serial", "this-escape"})
 public class MainPanel extends JPanel {
 
     private final StyledButton startButton   = new StyledButton("START", GameConstants.BTN_GREEN);

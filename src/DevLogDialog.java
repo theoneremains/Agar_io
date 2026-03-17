@@ -3,20 +3,30 @@ import javax.swing.*;
 import javax.swing.border.EmptyBorder;
 import java.awt.*;
 import java.awt.event.*;
+import java.util.Map;
 
 /**
  * DevLogDialog : Developer log / cheat window for the Agar.io game.
  * Opened and closed via Ctrl+I (Windows/Linux) or Cmd+I (macOS).
  * While open the game loop is paused.
- * Displays current world state and allows editing all key values,
- * including cell density for controlling food cell spawn rates.
+ *
+ * Displays every editable game mechanic in one place:
+ *   - Player identity (name, radius, score, position)
+ *   - Movement (speed X/Y with manual override toggle)
+ *   - Roguelite state (magnet radius, regen level, split shield factor, speed bonus)
+ *   - World settings (cell density, max food cells)
+ *   - Shave / erosion rate (global multiplier)
+ *   - Live counts (NPC alive, food cells)
+ *   - Upgrade history (read-only)
+ *
  * @author Kamil Yunus Özkaya
  */
+@SuppressWarnings({"serial", "this-escape"})
 public class DevLogDialog extends JDialog {
 
     private final GamePanel gamePanel;
 
-    // Input fields
+    // Input fields — player
     private JTextField tfName;
     private JTextField tfRadius;
     private JTextField tfScore;
@@ -25,9 +35,22 @@ public class DevLogDialog extends JDialog {
     private JCheckBox  cbSpeedOverride;
     private JTextField tfPosX;
     private JTextField tfPosY;
-    private JLabel     lblEnemyCount;
+
+    // Input fields — roguelite mechanics
+    private JTextField tfMagnetRadius;
+    private JTextField tfRegenLevel;
+    private JLabel     lblShieldFactor;
+    private JLabel     lblSpeedBonus;
+
+    // Input fields — world
     private JTextField tfCellDensity;
+    private JTextField tfShaveRate;
+
+    // Read-only labels
+    private JLabel     lblNpcAlive;
+    private JLabel     lblFoodCount;
     private JLabel     lblMaxCells;
+    private JLabel     lblUpgrades;
 
     /**
      * Constructs the developer log dialog.
@@ -38,7 +61,7 @@ public class DevLogDialog extends JDialog {
         super(owner, "Dev Log  [Ctrl+I / Cmd+I to close]", false); // non-modal
         this.gamePanel = gamePanel;
 
-        setSize(420, 500);
+        setSize(460, 650);
         setLocationRelativeTo(owner);
         setResizable(false);
         setDefaultCloseOperation(JDialog.DO_NOTHING_ON_CLOSE);
@@ -73,70 +96,64 @@ public class DevLogDialog extends JDialog {
 
         GridBagConstraints lc = new GridBagConstraints();
         lc.anchor = GridBagConstraints.WEST;
-        lc.insets = new Insets(5, 4, 5, 10);
+        lc.insets = new Insets(4, 4, 4, 10);
         lc.gridx = 0;
 
         GridBagConstraints fc = new GridBagConstraints();
         fc.fill = GridBagConstraints.HORIZONTAL;
         fc.weightx = 1.0;
-        fc.insets = new Insets(5, 0, 5, 4);
+        fc.insets = new Insets(4, 0, 4, 4);
         fc.gridx = 1;
 
         Color labelColor = new Color(180, 220, 255);
+        Color mechColor  = new Color(180, 255, 200);
+        Color worldColor = new Color(255, 220, 160);
+        Color readColor  = new Color(120, 255, 120);
         Color fieldBg    = new Color(50, 50, 65);
         Color fieldFg    = Color.WHITE;
         Font  labelFont  = new Font("Arial", Font.BOLD, 13);
         Font  fieldFont  = new Font("Arial", Font.PLAIN, 13);
+        Font  secFont    = new Font("Arial", Font.BOLD, 12);
 
         int row = 0;
 
-        // ---- Section title ----
-        JLabel title = new JLabel("  Developer Log \u2014 Editable World State");
-        title.setForeground(Color.YELLOW);
-        title.setFont(new Font("Arial", Font.BOLD, 14));
-        GridBagConstraints tc = new GridBagConstraints();
-        tc.gridx = 0; tc.gridy = row; tc.gridwidth = 2;
-        tc.anchor = GridBagConstraints.WEST;
-        tc.insets = new Insets(0, 0, 10, 0);
-        content.add(title, tc);
-        row++;
+        // ── Section: Title ───────────────────────────────────────────────
+        row = addSectionTitle(content, "  Developer Log \u2014 Editable World State",
+            Color.YELLOW, new Font("Arial", Font.BOLD, 14), row);
 
-        // ---- Player Name ----
+        // ── Section: Player ──────────────────────────────────────────────
+        row = addSectionHeader(content, "[ PLAYER ]", secFont, labelColor, row);
+
         lc.gridy = row; fc.gridy = row;
         content.add(makeLabel("Player Name:", labelFont, labelColor), lc);
         tfName = makeField(fieldFont, fieldBg, fieldFg);
         content.add(tfName, fc);
         row++;
 
-        // ---- Player Radius ----
         lc.gridy = row; fc.gridy = row;
         content.add(makeLabel("Player Radius:", labelFont, labelColor), lc);
         tfRadius = makeField(fieldFont, fieldBg, fieldFg);
         content.add(tfRadius, fc);
         row++;
 
-        // ---- Score ----
         lc.gridy = row; fc.gridy = row;
         content.add(makeLabel("Score:", labelFont, labelColor), lc);
         tfScore = makeField(fieldFont, fieldBg, fieldFg);
         content.add(tfScore, fc);
         row++;
 
-        // ---- Speed X ----
         lc.gridy = row; fc.gridy = row;
         content.add(makeLabel("Speed X:", labelFont, labelColor), lc);
         tfSpeedX = makeField(fieldFont, fieldBg, fieldFg);
         content.add(tfSpeedX, fc);
         row++;
 
-        // ---- Speed Y ----
         lc.gridy = row; fc.gridy = row;
         content.add(makeLabel("Speed Y:", labelFont, labelColor), lc);
         tfSpeedY = makeField(fieldFont, fieldBg, fieldFg);
         content.add(tfSpeedY, fc);
         row++;
 
-        // ---- Speed override checkbox ----
         lc.gridy = row; fc.gridy = row;
         content.add(makeLabel("Manual Speed Override:", labelFont, labelColor), lc);
         cbSpeedOverride = new JCheckBox();
@@ -147,46 +164,97 @@ public class DevLogDialog extends JDialog {
         content.add(cbSpeedOverride, fc);
         row++;
 
-        // ---- Position X ----
         lc.gridy = row; fc.gridy = row;
         content.add(makeLabel("Position X (world):", labelFont, labelColor), lc);
         tfPosX = makeField(fieldFont, fieldBg, fieldFg);
         content.add(tfPosX, fc);
         row++;
 
-        // ---- Position Y ----
         lc.gridy = row; fc.gridy = row;
         content.add(makeLabel("Position Y (world):", labelFont, labelColor), lc);
         tfPosY = makeField(fieldFont, fieldBg, fieldFg);
         content.add(tfPosY, fc);
         row++;
 
-        // ---- Enemy cell count (read-only) ----
+        // ── Section: Roguelite Mechanics ─────────────────────────────────
+        row = addSectionHeader(content, "[ ROGUELITE MECHANICS ]", secFont, mechColor, row);
+
         lc.gridy = row; fc.gridy = row;
-        content.add(makeLabel("Enemy Cells:", labelFont, labelColor), lc);
-        lblEnemyCount = new JLabel();
-        lblEnemyCount.setForeground(new Color(120, 255, 120));
-        lblEnemyCount.setFont(fieldFont);
-        content.add(lblEnemyCount, fc);
+        content.add(makeLabel("Magnet Radius (world px):", labelFont, mechColor), lc);
+        tfMagnetRadius = makeField(fieldFont, fieldBg, fieldFg);
+        content.add(tfMagnetRadius, fc);
         row++;
 
-        // ---- Cell Density (editable) ----
         lc.gridy = row; fc.gridy = row;
-        content.add(makeLabel("Cell Density (cells/M px):", labelFont, labelColor), lc);
+        content.add(makeLabel("Regen Level:", labelFont, mechColor), lc);
+        tfRegenLevel = makeField(fieldFont, fieldBg, fieldFg);
+        content.add(tfRegenLevel, fc);
+        row++;
+
+        lc.gridy = row; fc.gridy = row;
+        content.add(makeLabel("Split Shield Factor:", labelFont, mechColor), lc);
+        lblShieldFactor = new JLabel();
+        lblShieldFactor.setForeground(readColor);
+        lblShieldFactor.setFont(fieldFont);
+        content.add(lblShieldFactor, fc);
+        row++;
+
+        lc.gridy = row; fc.gridy = row;
+        content.add(makeLabel("Speed Bonus:", labelFont, mechColor), lc);
+        lblSpeedBonus = new JLabel();
+        lblSpeedBonus.setForeground(readColor);
+        lblSpeedBonus.setFont(fieldFont);
+        content.add(lblSpeedBonus, fc);
+        row++;
+
+        lc.gridy = row; fc.gridy = row;
+        content.add(makeLabel("Upgrades Taken:", labelFont, mechColor), lc);
+        lblUpgrades = new JLabel();
+        lblUpgrades.setForeground(readColor);
+        lblUpgrades.setFont(new Font("Arial", Font.PLAIN, 11));
+        content.add(lblUpgrades, fc);
+        row++;
+
+        // ── Section: World ───────────────────────────────────────────────
+        row = addSectionHeader(content, "[ WORLD ]", secFont, worldColor, row);
+
+        lc.gridy = row; fc.gridy = row;
+        content.add(makeLabel("Cell Density (cells/M px):", labelFont, worldColor), lc);
         tfCellDensity = makeField(fieldFont, fieldBg, fieldFg);
         content.add(tfCellDensity, fc);
         row++;
 
-        // ---- Max cells (read-only, computed from density) ----
         lc.gridy = row; fc.gridy = row;
-        content.add(makeLabel("Max Food Cells:", labelFont, labelColor), lc);
+        content.add(makeLabel("Division Rate Multiplier:", labelFont, worldColor), lc);
+        tfShaveRate = makeField(fieldFont, fieldBg, fieldFg);
+        content.add(tfShaveRate, fc);
+        row++;
+
+        lc.gridy = row; fc.gridy = row;
+        content.add(makeLabel("Max Food Cells:", labelFont, worldColor), lc);
         lblMaxCells = new JLabel();
-        lblMaxCells.setForeground(new Color(120, 255, 120));
+        lblMaxCells.setForeground(readColor);
         lblMaxCells.setFont(fieldFont);
         content.add(lblMaxCells, fc);
         row++;
 
-        // ---- Buttons row ----
+        lc.gridy = row; fc.gridy = row;
+        content.add(makeLabel("NPC Alive:", labelFont, worldColor), lc);
+        lblNpcAlive = new JLabel();
+        lblNpcAlive.setForeground(readColor);
+        lblNpcAlive.setFont(fieldFont);
+        content.add(lblNpcAlive, fc);
+        row++;
+
+        lc.gridy = row; fc.gridy = row;
+        content.add(makeLabel("Food Cells:", labelFont, worldColor), lc);
+        lblFoodCount = new JLabel();
+        lblFoodCount.setForeground(readColor);
+        lblFoodCount.setFont(fieldFont);
+        content.add(lblFoodCount, fc);
+        row++;
+
+        // ── Buttons row ──────────────────────────────────────────────────
         JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
         btnRow.setBackground(new Color(30, 30, 40));
 
@@ -205,7 +273,11 @@ public class DevLogDialog extends JDialog {
         bc.insets = new Insets(12, 0, 0, 0);
         content.add(btnRow, bc);
 
-        setContentPane(content);
+        JScrollPane scroll = new JScrollPane(content);
+        scroll.setBackground(new Color(30, 30, 40));
+        scroll.getViewport().setBackground(new Color(30, 30, 40));
+        scroll.setBorder(null);
+        setContentPane(scroll);
     }
 
     /** Populates all fields from the current game state. */
@@ -217,12 +289,39 @@ public class DevLogDialog extends JDialog {
         tfSpeedX.setText(String.format("%.2f", p.speedX));
         tfSpeedY.setText(String.format("%.2f", p.speedY));
         cbSpeedOverride.setSelected(gamePanel.devSpeedOverride);
-        // x/y stored as top-left; report the center for clarity
         tfPosX.setText(String.format("%.0f", p.x + p.cellRad));
         tfPosY.setText(String.format("%.0f", p.y + p.cellRad));
-        lblEnemyCount.setText(String.valueOf(gamePanel.getFoodCells().size()));
+
+        // Roguelite
+        tfMagnetRadius.setText(String.format("%.1f", gamePanel.magnetRadius));
+        tfRegenLevel.setText(String.valueOf(gamePanel.regenLevel));
+        lblShieldFactor.setText(String.format("%.3f", gamePanel.splitShieldFactor));
+        lblSpeedBonus.setText(String.format("+%.2f", gamePanel.playerSpeedBonus));
+
+        // Upgrade history (compact)
+        Map<UpgradeType, Integer> upgCounts = gamePanel.getUpgradeManager().getAppliedCounts();
+        if (upgCounts.isEmpty()) {
+            lblUpgrades.setText("none");
+        } else {
+            StringBuilder sb = new StringBuilder("<html>");
+            for (Map.Entry<UpgradeType, Integer> e : upgCounts.entrySet()) {
+                sb.append(e.getKey().displayName);
+                if (e.getValue() > 1) sb.append(" x").append(e.getValue());
+                sb.append("&nbsp; ");
+            }
+            sb.append("</html>");
+            lblUpgrades.setText(sb.toString());
+        }
+
+        // World
         tfCellDensity.setText(String.format("%.2f", GamePanel.cellDensity));
+        tfShaveRate.setText(String.format("%.2f", GamePanel.shaveRateMultiplier));
         lblMaxCells.setText(String.valueOf(gamePanel.getMaxCells()));
+
+        // Live counts
+        long npcAlive = gamePanel.getNPCList().stream().filter(n -> n.alive).count();
+        lblNpcAlive.setText(String.valueOf(npcAlive) + " / " + gamePanel.getNPCList().size());
+        lblFoodCount.setText(String.valueOf(gamePanel.getFoodCells().size()));
     }
 
     /**
@@ -270,17 +369,61 @@ public class DevLogDialog extends JDialog {
             }
         } catch (NumberFormatException ignored) {}
 
+        // Magnet radius
+        try {
+            double mr = Double.parseDouble(tfMagnetRadius.getText().trim());
+            if (mr >= 0) gamePanel.magnetRadius = mr;
+        } catch (NumberFormatException ignored) {}
+
+        // Regen level
+        try {
+            int rl = Integer.parseInt(tfRegenLevel.getText().trim());
+            if (rl >= 0) gamePanel.regenLevel = rl;
+        } catch (NumberFormatException ignored) {}
+
         // Cell density
         try {
             double d = Double.parseDouble(tfCellDensity.getText().trim());
             if (d > 0) GamePanel.cellDensity = d;
         } catch (NumberFormatException ignored) {}
 
+        // Shave rate multiplier
+        try {
+            double sr = Double.parseDouble(tfShaveRate.getText().trim());
+            if (sr > 0) GamePanel.shaveRateMultiplier = sr;
+        } catch (NumberFormatException ignored) {}
+
         gamePanel.paused = false;
         dispose();
     }
 
-    // ---- UI helpers ----
+    // ── UI helpers ────────────────────────────────────────────────────────
+
+    /** Adds a yellow section title spanning both columns. Returns next row index. */
+    private int addSectionTitle(JPanel panel, String text, Color color, Font font, int row) {
+        JLabel title = new JLabel(text);
+        title.setForeground(color);
+        title.setFont(font);
+        GridBagConstraints tc = new GridBagConstraints();
+        tc.gridx = 0; tc.gridy = row; tc.gridwidth = 2;
+        tc.anchor = GridBagConstraints.WEST;
+        tc.insets = new Insets(0, 0, 10, 0);
+        panel.add(title, tc);
+        return row + 1;
+    }
+
+    /** Adds a colored section header spanning both columns. Returns next row index. */
+    private int addSectionHeader(JPanel panel, String text, Font font, Color color, int row) {
+        JLabel lbl = new JLabel(text);
+        lbl.setForeground(color);
+        lbl.setFont(font);
+        GridBagConstraints gc = new GridBagConstraints();
+        gc.gridx = 0; gc.gridy = row; gc.gridwidth = 2;
+        gc.anchor = GridBagConstraints.WEST;
+        gc.insets = new Insets(10, 0, 4, 0);
+        panel.add(lbl, gc);
+        return row + 1;
+    }
 
     private JLabel makeLabel(String text, Font font, Color fg) {
         JLabel lbl = new JLabel(text);

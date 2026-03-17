@@ -9,6 +9,7 @@ import java.awt.*;
  * FULLSCREEN button toggles between fullscreen and windowed mode.
  * @author Kamil Yunus Ozkaya
  */
+@SuppressWarnings({"serial", "this-escape"})
 public class OptionsPanel extends JPanel {
 
     private final StyledButton soundButton = new StyledButton(

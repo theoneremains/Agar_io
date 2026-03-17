@@ -118,14 +118,4 @@ public class Cell {
         double dy = other.getCenterY() - getCenterY();
         return Math.sqrt(dx * dx + dy * dy) < cellRad + other.cellRad;
     }
-
-    /** @deprecated Use {@link #getCenterX()} instead */
-    public double getX() {
-        return x;
-    }
-
-    /** @deprecated Use {@link #getCenterY()} instead */
-    public double getY() {
-        return y;
-    }
 }
