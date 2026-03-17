@@ -11,7 +11,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * GamePanel : Core game panel that orchestrates the game loop, input handling,
  * and coordinates between CollisionHandler and GameRenderer.
  * Creates the player cell and NPC cells, manages food cell spawning,
- * camera tracking, and game state (pause, game over, easter egg).
+ * camera tracking, and game state (pause, game over, upgrade selection).
  * @author Kamil Yunus Özkaya
  */
 public class GamePanel extends JPanel implements KeyListener {
@@ -44,6 +44,8 @@ public class GamePanel extends JPanel implements KeyListener {
     // ── Input State ──────────────────────────────────────────────────────
 
     private boolean right, left, up, down;
+    /** Set to true for one tick when the player presses SPACE for dodge */
+    private volatile boolean dodgeRequested = false;
 
     // ── Camera ───────────────────────────────────────────────────────────
 
@@ -60,7 +62,6 @@ public class GamePanel extends JPanel implements KeyListener {
     // ── Audio ────────────────────────────────────────────────────────────
 
     private javax.sound.sampled.SourceDataLine gameAmbientLine;
-    private final Sound easterEggMusic = new Sound("coolMusic.wav", 1);
 
     // ── Game Flags ───────────────────────────────────────────────────────
 
@@ -70,13 +71,14 @@ public class GamePanel extends JPanel implements KeyListener {
     /** When true the game has ended */
     public volatile boolean gameOver = false;
 
-    /** When true, the easter egg is playing and player actions are frozen */
-    private volatile boolean easterEggActive = false;
+    /**
+     * When true the game loop is frozen while the player picks an upgrade.
+     * Distinct from {@code paused} so the dev-log overlay is not shown
+     * during upgrade selection.
+     */
+    public volatile boolean upgradeSelecting = false;
 
-    /** Whether the easter egg sequence has been triggered at all */
-    private boolean easterEggTriggered = false;
-
-    /** Saved elapsed time (ms) at the moment the game is won / player dies */
+    /** Saved elapsed time (ms) when the player dies */
     private long finalElapsedTime = -1;
 
     /** When true, skip automatic speed recalculation (dev override active) */
@@ -90,6 +92,43 @@ public class GamePanel extends JPanel implements KeyListener {
 
     /** Flag to signal game threads to stop */
     private volatile boolean running = true;
+
+    // ── Roguelite Upgrade State ──────────────────────────────────────────
+
+    private final UpgradeManager upgradeManager = new UpgradeManager();
+
+    /** Bonus speed added to the player by Speed Boost upgrades */
+    public double playerSpeedBonus = 0.0;
+
+    /**
+     * Current small-food probability (modified by Big Feast upgrades).
+     * Starts at the global default and drifts downward with each Big Feast level.
+     */
+    public double foodSmallChance = GameConstants.SMALL_CHANCE;
+
+    /**
+     * Current medium-food probability (modified by Big Feast upgrades).
+     * Starts at the global default and drifts upward with each Big Feast level.
+     */
+    public double foodMediumChance = GameConstants.MEDIUM_CHANCE;
+
+    /** Countdown ticks remaining before Dodge can be used again (0 = ready) */
+    private int dodgeCooldownTicks = 0;
+
+    /** Number of Magnet upgrade levels (determines pull radius) */
+    public int magnetLevel = 0;
+
+    /** World-space radius in which food cells are attracted to the player */
+    public double magnetRadius = 0.0;
+
+    /** Number of Regeneration upgrade levels */
+    public int regenLevel = 0;
+
+    /**
+     * Factor of radius retained when the player is divided.
+     * Default equals {@code 1/√2}; increases with Split Shield upgrades.
+     */
+    public double splitShieldFactor = GameConstants.SPLIT_SHIELD_BASE;
 
     // ── Subsystems ───────────────────────────────────────────────────────
 
@@ -156,8 +195,8 @@ public class GamePanel extends JPanel implements KeyListener {
     public double getCameraZoom() { return cameraZoom; }
     public boolean isGameOver() { return gameOver; }
     public boolean isPaused() { return paused; }
-    public boolean isEasterEggActive() { return easterEggActive; }
-    public boolean wasEasterEggTriggered() { return easterEggTriggered; }
+    public UpgradeManager getUpgradeManager() { return upgradeManager; }
+    public int getDodgeCooldownTicks() { return dodgeCooldownTicks; }
 
     public long getDisplayElapsedTime() {
         return finalElapsedTime >= 0 ? finalElapsedTime : hud.elapsedTime;
@@ -195,17 +234,19 @@ public class GamePanel extends JPanel implements KeyListener {
     // ── Food Cell Generation ─────────────────────────────────────────────
 
     /**
-     * Returns a random food cell radius based on the three fixed categories:
-     * Small (90%, radius 1), Medium (7%, radius 2–5), Large (3%, radius 5–10).
+     * Returns a random food cell radius based on the current probability distribution.
+     * The distribution shifts toward larger cells as the player takes Big Feast upgrades.
      */
     private double randomFoodRadius() {
         double roll = random.nextDouble();
-        if (roll < GameConstants.SMALL_CHANCE) {
+        if (roll < foodSmallChance) {
             return GameConstants.SMALL_RAD;
-        } else if (roll < GameConstants.SMALL_CHANCE + GameConstants.MEDIUM_CHANCE) {
-            return GameConstants.MEDIUM_RAD_MIN + random.nextDouble() * (GameConstants.MEDIUM_RAD_MAX - GameConstants.MEDIUM_RAD_MIN);
+        } else if (roll < foodSmallChance + foodMediumChance) {
+            return GameConstants.MEDIUM_RAD_MIN
+                + random.nextDouble() * (GameConstants.MEDIUM_RAD_MAX - GameConstants.MEDIUM_RAD_MIN);
         } else {
-            return GameConstants.LARGE_RAD_MIN + random.nextDouble() * (GameConstants.LARGE_RAD_MAX - GameConstants.LARGE_RAD_MIN);
+            return GameConstants.LARGE_RAD_MIN
+                + random.nextDouble() * (GameConstants.LARGE_RAD_MAX - GameConstants.LARGE_RAD_MIN);
         }
     }
 
@@ -296,12 +337,24 @@ public class GamePanel extends JPanel implements KeyListener {
     private void startGameThread() {
         Thread thread = new Thread(() -> {
             while (running) {
-                if (!paused && !gameOver) {
-                    // Fixed speed
+                if (!paused && !gameOver && !upgradeSelecting) {
+                    // Fixed speed + any speed upgrades
                     if (!devSpeedOverride) {
-                        playerCell.speedX = GameConstants.DEFAULT_SPEED;
-                        playerCell.speedY = GameConstants.DEFAULT_SPEED;
+                        double speed = GameConstants.DEFAULT_SPEED + playerSpeedBonus;
+                        playerCell.speedX = speed;
+                        playerCell.speedY = speed;
                     }
+
+                    // Dodge dash
+                    if (dodgeRequested) {
+                        dodgeRequested = false;
+                        if (upgradeManager.hasDodge() && dodgeCooldownTicks <= 0) {
+                            performDodge();
+                        }
+                    }
+
+                    // Countdown dodge cooldown
+                    if (dodgeCooldownTicks > 0) dodgeCooldownTicks--;
 
                     playerCell.updateCellPos(right, left, up, down);
 
@@ -333,8 +386,17 @@ public class GamePanel extends JPanel implements KeyListener {
                     // Update visual effects
                     updateEffects();
 
-                    // Check easter egg condition
-                    checkEasterEgg();
+                    // Roguelite passive effects
+                    applyMagnet();
+                    applyRegen();
+                    checkNPCUpgrades();
+
+                    // Check upgrade threshold
+                    upgradeManager.checkScore(hud.score);
+                    if (upgradeManager.isUpgradeReady() && !upgradeSelecting) {
+                        upgradeSelecting = true;
+                        SwingUtilities.invokeLater(this::showUpgradeSelection);
+                    }
                 }
 
                 repaint();
@@ -347,6 +409,151 @@ public class GamePanel extends JPanel implements KeyListener {
         });
         thread.setDaemon(true);
         thread.start();
+    }
+
+    // ── Roguelite Passive Effects ────────────────────────────────────────
+
+    /**
+     * Attracts food cells within {@code magnetRadius} toward the player each tick.
+     * Does nothing when magnetLevel is 0.
+     */
+    private void applyMagnet() {
+        if (magnetRadius <= 0) return;
+        double pCX = playerCell.getCenterX();
+        double pCY = playerCell.getCenterY();
+        double radSq = magnetRadius * magnetRadius;
+        for (Cell food : foodCells) {
+            double dx = pCX - food.getCenterX();
+            double dy = pCY - food.getCenterY();
+            double distSq = dx * dx + dy * dy;
+            if (distSq < radSq && distSq > 0.01) {
+                double dist = Math.sqrt(distSq);
+                food.x += (dx / dist) * GameConstants.MAGNET_PULL_SPEED;
+                food.y += (dy / dist) * GameConstants.MAGNET_PULL_SPEED;
+            }
+        }
+    }
+
+    /**
+     * Applies regeneration to the player and any NPCs that have the Regeneration upgrade.
+     * Each level adds a small fixed radius per tick.
+     */
+    private void applyRegen() {
+        if (regenLevel > 0) {
+            playerCell.cellRad += GameConstants.REGEN_RATE_PER_LEVEL * regenLevel;
+            updatePlayerScore();
+        }
+        for (NPC npc : npcList) {
+            if (npc.alive && npc.regenLevel > 0) {
+                npc.cell.cellRad += GameConstants.REGEN_RATE_PER_LEVEL * npc.regenLevel;
+            }
+        }
+    }
+
+    /**
+     * Checks every living NPC's score against upgrade thresholds and auto-applies
+     * a random NPC-eligible upgrade when a threshold is crossed.
+     */
+    private void checkNPCUpgrades() {
+        for (NPC npc : npcList) {
+            if (npc.alive) {
+                npc.upgradeManager.checkAndAutoApplyForNPC(npc.score, npc);
+            }
+        }
+    }
+
+    // ── Dodge Mechanic ───────────────────────────────────────────────────
+
+    /**
+     * Instantly moves the player cell in the current movement direction by
+     * {@code DODGE_DISTANCE} pixels, then wraps toroidally.
+     * If no direction keys are held the player dashes to the right.
+     */
+    private void performDodge() {
+        double dx = 0, dy = 0;
+        if (right) dx += 1;
+        if (left)  dx -= 1;
+        if (up)    dy -= 1;
+        if (down)  dy += 1;
+        if (dx == 0 && dy == 0) dx = 1; // default: dash right
+
+        double len = Math.sqrt(dx * dx + dy * dy);
+        dx /= len;
+        dy /= len;
+
+        double cx = playerCell.getCenterX() + dx * GameConstants.DODGE_DISTANCE;
+        double cy = playerCell.getCenterY() + dy * GameConstants.DODGE_DISTANCE;
+
+        // Toroidal wrap
+        cx = ((cx % MainClass.WORLD_WIDTH)  + MainClass.WORLD_WIDTH)  % MainClass.WORLD_WIDTH;
+        cy = ((cy % MainClass.WORLD_HEIGHT) + MainClass.WORLD_HEIGHT) % MainClass.WORLD_HEIGHT;
+
+        playerCell.x = cx - playerCell.cellRad;
+        playerCell.y = cy - playerCell.cellRad;
+
+        dodgeCooldownTicks = GameConstants.DODGE_COOLDOWN_TICKS;
+        Sound.playDodgeSound();
+    }
+
+    // ── Upgrade Selection UI ─────────────────────────────────────────────
+
+    /**
+     * Adds three upgrade choice buttons to the panel so the player can select
+     * one.  Must be called on the EDT.  {@code upgradeSelecting} is already
+     * {@code true} at this point (set by the game thread).
+     */
+    private void showUpgradeSelection() {
+        setLayout(null);
+
+        List<UpgradeType> choices = upgradeManager.getCurrentChoices();
+        int n = choices.size();
+
+        int totalW = n * GameConstants.UPGRADE_CARD_WIDTH + (n - 1) * GameConstants.UPGRADE_CARD_GAP;
+        int startX = (MainClass.SCREEN_WIDTH - totalW) / 2;
+        int cardY   = MainClass.SCREEN_HEIGHT / 2 - 80;
+        int btnY    = cardY + GameConstants.UPGRADE_CARD_HEIGHT
+                           - GameConstants.UPGRADE_BTN_HEIGHT
+                           - GameConstants.UPGRADE_BTN_MARGIN;
+        int btnW    = GameConstants.UPGRADE_CARD_WIDTH - 2 * GameConstants.UPGRADE_BTN_MARGIN;
+
+        for (int i = 0; i < n; i++) {
+            UpgradeType type = choices.get(i);
+            int btnX = startX + i * (GameConstants.UPGRADE_CARD_WIDTH + GameConstants.UPGRADE_CARD_GAP)
+                       + GameConstants.UPGRADE_BTN_MARGIN;
+
+            StyledButton btn = new StyledButton(type.displayName, GameConstants.BTN_BLUE);
+            btn.setFont(new Font(GameConstants.FONT_FAMILY, Font.BOLD, 14));
+            btn.setBounds(btnX, btnY, btnW, GameConstants.UPGRADE_BTN_HEIGHT);
+            btn.setName("upgrade_btn");
+
+            final UpgradeType chosen = type;
+            btn.addActionListener(e -> dismissUpgradeSelection(chosen));
+
+            add(btn);
+        }
+
+        revalidate();
+        repaint();
+    }
+
+    /**
+     * Applies the chosen upgrade, removes the choice buttons, and resumes
+     * the game loop.  Must be called on the EDT.
+     */
+    private void dismissUpgradeSelection(UpgradeType chosen) {
+        upgradeManager.applyUpgrade(chosen, this);
+
+        // Remove all upgrade buttons
+        Component[] components = getComponents();
+        for (Component c : components) {
+            if (c instanceof JButton && "upgrade_btn".equals(c.getName())) {
+                remove(c);
+            }
+        }
+
+        upgradeSelecting = false;
+        revalidate();
+        repaint();
     }
 
     // ── Camera ───────────────────────────────────────────────────────────
@@ -393,34 +600,6 @@ public class GamePanel extends JPanel implements KeyListener {
         }
     }
 
-    // ── Easter Egg ───────────────────────────────────────────────────────
-
-    private void checkEasterEgg() {
-        if (gameOver || easterEggTriggered) return;
-
-        boolean allNpcsDead = true;
-        for (NPC npc : npcList) {
-            if (npc.alive) { allNpcsDead = false; break; }
-        }
-
-        if (allNpcsDead) {
-            easterEggTriggered = true;
-            hud.updateElapsedTime();
-            finalElapsedTime = hud.elapsedTime;
-            updatePlayerScore();
-            easterEggActive = true;
-            hud.resetTime();
-            easterEggMusic.playSound();
-
-            Thread endThread = new Thread(() -> {
-                try { Thread.sleep(20000); } catch (InterruptedException e) { return; }
-                triggerGameOver();
-            });
-            endThread.setDaemon(true);
-            endThread.start();
-        }
-    }
-
     // ── Game Over ────────────────────────────────────────────────────────
 
     /** Called by CollisionHandler when an NPC eats the player */
@@ -438,7 +617,6 @@ public class GamePanel extends JPanel implements KeyListener {
     private void triggerGameOver() {
         if (gameOver) return;
         gameOver = true;
-        easterEggMusic.closeSound();
         ToneGenerator.stopLine(gameAmbientLine);
         gameAmbientLine = null;
         SwingUtilities.invokeLater(this::showGameOverScreen);
@@ -531,6 +709,9 @@ public class GamePanel extends JPanel implements KeyListener {
             case KeyEvent.VK_LEFT:  case KeyEvent.VK_A: left  = true; break;
             case KeyEvent.VK_UP:    case KeyEvent.VK_W: up    = true; break;
             case KeyEvent.VK_DOWN:  case KeyEvent.VK_S: down  = true; break;
+            case KeyEvent.VK_SPACE:
+                if (upgradeManager.hasDodge()) dodgeRequested = true;
+                break;
             case KeyEvent.VK_I:
                 if ((e.getModifiersEx() & KeyEvent.CTRL_DOWN_MASK) != 0 ||
                     (e.getModifiersEx() & KeyEvent.META_DOWN_MASK) != 0) {

@@ -92,6 +92,49 @@ public final class GameConstants {
     public static final String SAVES_DIR   = "saves";
     public static final String SAVE_EXT    = ".cfg";
 
+    // ── Roguelite Upgrades ───────────────────────────────────────────────
+    /** Score thresholds at which the player is offered an upgrade choice */
+    public static final int[] UPGRADE_SCORE_THRESHOLDS = {
+        50, 150, 300, 500, 800, 1200, 1800, 2500, 3500, 5000
+    };
+    /** Number of upgrade choices presented at each level-up */
+    public static final int UPGRADE_CHOICES = 3;
+    /** Speed added to player per Speed Boost upgrade */
+    public static final double SPEED_UPGRADE_AMOUNT = 0.8;
+    /** Radius added (via area formula) per Size Surge upgrade */
+    public static final double SIZE_UPGRADE_AMOUNT = 6.0;
+    /** Multiplier applied to cell density per Bountiful World upgrade */
+    public static final double DENSITY_UPGRADE_FACTOR = 1.4;
+    /** Shift in small-food probability per Big Feast upgrade (negative = fewer small) */
+    public static final double DIVERGENCY_SMALL_SHIFT = -0.12;
+    /** Shift in medium-food probability per Big Feast upgrade */
+    public static final double DIVERGENCY_MEDIUM_SHIFT = 0.06;
+    /** Pixels the player jumps during a Dodge dash */
+    public static final int DODGE_DISTANCE = 130;
+    /** Game ticks before Dodge can be used again (~3 seconds) */
+    public static final int DODGE_COOLDOWN_TICKS = 300;
+    // Upgrade card layout constants (used by GameRenderer + GamePanel)
+    public static final int UPGRADE_CARD_WIDTH  = 220;
+    public static final int UPGRADE_CARD_HEIGHT = 155;
+    public static final int UPGRADE_CARD_GAP    = 30;
+    public static final int UPGRADE_BTN_HEIGHT  = 50;
+    public static final int UPGRADE_BTN_MARGIN  = 10;
+    // ── Magnet upgrade ───────────────────────────────────────────────────
+    /** World-space radius added per Magnet upgrade level */
+    public static final double MAGNET_RADIUS_PER_LEVEL = 160.0;
+    /** Pixels per tick that attracted food cells move toward the player */
+    public static final double MAGNET_PULL_SPEED = 1.8;
+    // ── Regeneration upgrade ─────────────────────────────────────────────
+    /** Radius recovered per tick per Regeneration level */
+    public static final double REGEN_RATE_PER_LEVEL = 0.0004;
+    // ── Split Shield upgrade ─────────────────────────────────────────────
+    /** Base division factor (radius kept) when no Split Shield — equals 1/√2 */
+    public static final double SPLIT_SHIELD_BASE   = 0.7071067811865476; // 1/sqrt(2)
+    /** Factor added per Split Shield level */
+    public static final double SPLIT_SHIELD_PER_LEVEL = 0.065;
+    /** Maximum factor (can never keep more than this fraction of radius) */
+    public static final double SPLIT_SHIELD_MAX    = 0.93;
+
     // ── Utility Methods ──────────────────────────────────────────────────
 
     /**

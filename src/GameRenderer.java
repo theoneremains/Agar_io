@@ -1,18 +1,18 @@
 import java.awt.*;
 import java.awt.geom.AffineTransform;
 import java.util.List;
-import java.util.Random;
+import java.awt.BasicStroke;
 
 /**
  * GameRenderer : Handles all drawing/rendering for the game.
  * Extracted from GamePanel to separate rendering concerns from game logic.
- * Draws the world, cells, NPCs, player, effects, HUD, scoreboard, and overlays.
+ * Draws the world, cells, NPCs, player, effects, HUD, scoreboard, and overlays
+ * (upgrade selection, pause, game over).
  * @author Kamil Yunus Ozkaya
  */
 public class GameRenderer {
 
     private final GamePanel game;
-    private final Random random = new Random();
 
     public GameRenderer(GamePanel game) {
         this.game = game;
@@ -52,7 +52,7 @@ public class GameRenderer {
 
         drawHUD(g2d);
         drawScoreboard(g2d);
-        drawEasterEggOverlay(g2d);
+        drawUpgradeOverlay(g2d);
         drawPausedOverlay(g2d);
         if (game.isGameOver()) {
             drawGameOverOverlay(g2d);
@@ -79,16 +79,58 @@ public class GameRenderer {
             int npcDrawRad = (int) Math.round(npc.cell.cellRad);
             npc.cell.drawCell(g2d, npcDrawRad);
             drawCellName(g2d, npc.cell, npc.name, npcDrawRad);
+            if (npc.upgradeCount > 0) {
+                drawNPCUpgradeStar(g2d, npc, npcDrawRad);
+            }
         }
     }
 
+    /**
+     * Draws a small gold star badge with upgrade count on upgraded NPCs.
+     * Positioned at the top-right of the cell.
+     */
+    private void drawNPCUpgradeStar(Graphics2D g2d, NPC npc, int drawRad) {
+        int badgeX = (int) Math.round(npc.cell.getCenterX()) + drawRad - 6;
+        int badgeY = (int) Math.round(npc.cell.getCenterY()) - drawRad + 6;
+        g2d.setColor(new Color(255, 215, 0, 220));
+        g2d.fillOval(badgeX - 6, badgeY - 6, 12, 12);
+        g2d.setColor(Color.BLACK);
+        g2d.setFont(new Font(GameConstants.FONT_FAMILY, Font.BOLD, 8));
+        FontMetrics fm = g2d.getFontMetrics();
+        String label = "\u2605" + npc.upgradeCount; // ★N
+        g2d.drawString(label, badgeX - fm.stringWidth(label) / 2, badgeY + fm.getAscent() / 2 - 1);
+    }
+
     private void drawPlayer(Graphics2D g2d) {
-        if (game.isGameOver() && !game.wasEasterEggTriggered()) return;
+        if (game.isGameOver()) return;
 
         Cell player = game.getPlayerCell();
         int playerDrawRad = (int) Math.round(player.cellRad);
+
+        // Magnet aura — dashed circle pulsing at the pull radius
+        if (game.magnetLevel > 0) {
+            drawMagnetAura(g2d, player);
+        }
+
         player.drawCell(g2d, playerDrawRad);
         drawCellName(g2d, player, GamePanel.playerName, playerDrawRad);
+    }
+
+    /**
+     * Draws a pulsing dashed circle at the player's magnet radius (world space).
+     */
+    private void drawMagnetAura(Graphics2D g2d, Cell player) {
+        double pulseAlpha = 0.18 + 0.10 * Math.sin(System.currentTimeMillis() / 350.0);
+        int alpha = Math.max(10, Math.min(255, (int) (pulseAlpha * 255)));
+        g2d.setColor(new Color(80, 200, 255, alpha));
+        Stroke saved = g2d.getStroke();
+        g2d.setStroke(new BasicStroke(2.0f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND,
+            0, new float[]{10, 8}, (float) (System.currentTimeMillis() / 80.0 % 18)));
+        int mr = (int) game.magnetRadius;
+        int cx = (int) Math.round(player.getCenterX());
+        int cy = (int) Math.round(player.getCenterY());
+        g2d.drawOval(cx - mr, cy - mr, mr * 2, mr * 2);
+        g2d.setStroke(saved);
     }
 
     private void drawCellName(Graphics2D g2d, Cell cell, String name, int drawRad) {
@@ -125,6 +167,66 @@ public class GameRenderer {
 
         long displayElapsed = game.getDisplayElapsedTime();
         g2d.drawString("Elapsed Time " + displayElapsed / 1000, 490, 20);
+
+        // Active upgrade indicators (bottom-left)
+        int indicatorX = 10;
+        if (game.getUpgradeManager().hasDodge()) {
+            drawDodgeIndicator(g2d, indicatorX);
+            indicatorX += 130;
+        }
+        if (game.magnetLevel > 0) {
+            drawSimpleIndicator(g2d, indicatorX, "\u25CE Magnet x" + game.magnetLevel,
+                new Color(80, 200, 255));
+            indicatorX += 130;
+        }
+        if (game.regenLevel > 0) {
+            drawSimpleIndicator(g2d, indicatorX, "\u2665 Regen x" + game.regenLevel,
+                new Color(100, 220, 130));
+        }
+    }
+
+    /**
+     * Draws a small DODGE status indicator.
+     * Shows "DODGE [READY]" in green or "DODGE [cooldown]" in gray with a
+     * depleting cooldown bar.
+     */
+    private void drawDodgeIndicator(Graphics2D g2d, int x) {
+        int y = MainClass.SCREEN_HEIGHT - 40;
+        int barW = 100;
+        int barH = 8;
+
+        int cooldown = game.getDodgeCooldownTicks();
+        boolean ready = cooldown <= 0;
+
+        // Label
+        g2d.setFont(new Font(GameConstants.FONT_FAMILY, Font.BOLD, 13));
+        g2d.setColor(ready ? new Color(80, 230, 80) : new Color(160, 160, 160));
+        g2d.drawString("DODGE", x, y);
+
+        // Cooldown bar background
+        g2d.setColor(new Color(60, 60, 60, 180));
+        g2d.fillRoundRect(x, y + 5, barW, barH, 4, 4);
+
+        // Cooldown bar fill
+        int filled = ready ? barW
+                           : (int) (barW * (1.0 - (double) cooldown / GameConstants.DODGE_COOLDOWN_TICKS));
+        g2d.setColor(ready ? new Color(80, 230, 80) : new Color(80, 140, 200));
+        if (filled > 0) g2d.fillRoundRect(x, y + 5, filled, barH, 4, 4);
+
+        // Ready label
+        if (ready) {
+            g2d.setFont(new Font(GameConstants.FONT_FAMILY, Font.PLAIN, 11));
+            g2d.setColor(new Color(80, 230, 80));
+            g2d.drawString("SPACE", x + barW + 6, y + 13);
+        }
+    }
+
+    /** Draws a simple colored label in the bottom-left HUD area at the given x offset. */
+    private void drawSimpleIndicator(Graphics2D g2d, int x, String label, Color color) {
+        int y = MainClass.SCREEN_HEIGHT - 40;
+        g2d.setFont(new Font(GameConstants.FONT_FAMILY, Font.BOLD, 13));
+        g2d.setColor(color);
+        g2d.drawString(label, x, y);
     }
 
     private void drawScoreboard(Graphics2D g2d) {
@@ -168,34 +270,89 @@ public class GameRenderer {
         }
     }
 
-    private void drawEasterEggOverlay(Graphics2D g2d) {
-        if (!game.wasEasterEggTriggered() || game.isGameOver()) return;
+    // ── Upgrade Selection Overlay ────────────────────────────────────────
 
-        long secs = game.getHUD().elapsedTime / 1000;
-        g2d.setColor(Color.WHITE);
+    /**
+     * Draws the upgrade selection overlay when the player has earned a level-up.
+     * The actual clickable buttons are added as Swing components by GamePanel;
+     * this method draws the visual background, title, and per-card descriptions.
+     */
+    private void drawUpgradeOverlay(Graphics2D g2d) {
+        if (!game.upgradeSelecting) return;
 
-        if (secs > 5 && secs < 8) {
-            g2d.setFont(new Font(GameConstants.FONT_FAMILY, Font.BOLD, 200));
-            g2d.drawString("TOO EASY???", 0, MainClass.SCREEN_HEIGHT / 2);
-        } else if (secs >= 8 && secs < 13) {
-            g2d.setFont(new Font(GameConstants.FONT_FAMILY, Font.BOLD, 130));
-            g2d.drawString("YOU KNOW WHAT :)", 0, MainClass.SCREEN_HEIGHT / 2);
-        } else if (secs >= 14 && secs < 17) {
-            g2d.setFont(new Font(GameConstants.FONT_FAMILY, Font.BOLD, 80));
-            g2d.drawString("FIRE IT LOUD", 0, MainClass.SCREEN_HEIGHT / 2);
-            g2d.drawString("ANOTHER ROUND OF SHOTS", 0, (MainClass.SCREEN_HEIGHT + 160) / 2);
-        } else if (secs > 17) {
-            g2d.setFont(new Font(GameConstants.FONT_FAMILY, Font.BOLD, 150));
-            g2d.drawString("TURN DOWN FOR", 0, MainClass.SCREEN_HEIGHT / 2);
-            g2d.drawString("WHAT", 0, (MainClass.SCREEN_HEIGHT + 300) / 2);
-            g2d.setFont(new Font(GameConstants.FONT_FAMILY, Font.BOLD, 50));
-            g2d.drawString("HA HA HA!",
-                random.nextInt(MainClass.SCREEN_WIDTH), random.nextInt(MainClass.SCREEN_HEIGHT));
+        // Dark overlay
+        g2d.setColor(new Color(0, 0, 0, 185));
+        g2d.fillRect(0, 0, MainClass.SCREEN_WIDTH, MainClass.SCREEN_HEIGHT);
+
+        // Title
+        g2d.setFont(new Font(GameConstants.FONT_FAMILY, Font.BOLD, 36));
+        g2d.setColor(new Color(255, 215, 0));
+        String title = "LEVEL UP!  Choose Your Upgrade";
+        FontMetrics tfm = g2d.getFontMetrics();
+        g2d.drawString(title, (MainClass.SCREEN_WIDTH - tfm.stringWidth(title)) / 2,
+            MainClass.SCREEN_HEIGHT / 2 - 115);
+
+        // Subtitle hint
+        g2d.setFont(new Font(GameConstants.FONT_FAMILY, Font.PLAIN, 14));
+        g2d.setColor(new Color(200, 200, 200));
+        String hint = "Click a card to apply the upgrade and resume the game.";
+        FontMetrics hfm = g2d.getFontMetrics();
+        g2d.drawString(hint, (MainClass.SCREEN_WIDTH - hfm.stringWidth(hint)) / 2,
+            MainClass.SCREEN_HEIGHT / 2 - 85);
+
+        // Cards
+        java.util.List<UpgradeType> choices = game.getUpgradeManager().getCurrentChoices();
+        int n = choices.size();
+        int totalW = n * GameConstants.UPGRADE_CARD_WIDTH + (n - 1) * GameConstants.UPGRADE_CARD_GAP;
+        int startX = (MainClass.SCREEN_WIDTH - totalW) / 2;
+        int cardY  = MainClass.SCREEN_HEIGHT / 2 - 80;
+
+        for (int i = 0; i < n; i++) {
+            UpgradeType type = choices.get(i);
+            int cardX = startX + i * (GameConstants.UPGRADE_CARD_WIDTH + GameConstants.UPGRADE_CARD_GAP);
+
+            // Card background
+            g2d.setColor(new Color(30, 45, 70, 230));
+            g2d.fillRoundRect(cardX, cardY, GameConstants.UPGRADE_CARD_WIDTH,
+                GameConstants.UPGRADE_CARD_HEIGHT, 16, 16);
+            // Card border
+            g2d.setColor(new Color(90, 130, 210, 180));
+            g2d.drawRoundRect(cardX, cardY, GameConstants.UPGRADE_CARD_WIDTH,
+                GameConstants.UPGRADE_CARD_HEIGHT, 16, 16);
+
+            // Description text (word-wrapped)
+            g2d.setFont(new Font(GameConstants.FONT_FAMILY, Font.PLAIN, 13));
+            g2d.setColor(new Color(200, 215, 240));
+            drawWrappedText(g2d, type.description,
+                cardX + 10, cardY + 22,
+                GameConstants.UPGRADE_CARD_WIDTH - 20, 18);
         }
     }
 
+    /** Draws word-wrapped text within a given pixel width. */
+    private void drawWrappedText(Graphics2D g2d, String text, int x, int y, int maxWidth, int lineHeight) {
+        FontMetrics fm = g2d.getFontMetrics();
+        String[] words = text.split(" ");
+        StringBuilder line = new StringBuilder();
+        int curY = y;
+        for (String word : words) {
+            String test = line.length() == 0 ? word : line + " " + word;
+            if (fm.stringWidth(test) > maxWidth && line.length() > 0) {
+                g2d.drawString(line.toString(), x, curY);
+                line = new StringBuilder(word);
+                curY += lineHeight;
+            } else {
+                line = new StringBuilder(test);
+            }
+        }
+        if (line.length() > 0) g2d.drawString(line.toString(), x, curY);
+    }
+
+    // ── Other Overlays ───────────────────────────────────────────────────
+
     private void drawPausedOverlay(Graphics2D g2d) {
-        if (!game.isPaused() || game.isGameOver()) return;
+        // Only show pause overlay for dev-log pause, not for upgrade selection
+        if (!game.isPaused() || game.isGameOver() || game.upgradeSelecting) return;
 
         g2d.setColor(new Color(0, 0, 0, 100));
         g2d.fillRect(0, 0, MainClass.SCREEN_WIDTH, MainClass.SCREEN_HEIGHT);

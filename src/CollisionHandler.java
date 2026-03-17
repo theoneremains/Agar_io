@@ -30,10 +30,8 @@ public class CollisionHandler {
     public void update() {
         if (game.isGameOver()) return;
 
-        if (!game.isEasterEggActive()) {
-            checkPlayerEatsFood();
-            checkPlayerEatsNPCs();
-        }
+        checkPlayerEatsFood();
+        checkPlayerEatsNPCs();
         checkNPCsEatFood();
         checkNPCsEatNPCs();
         checkNPCsEatPlayer();
@@ -336,7 +334,8 @@ public class CollisionHandler {
     }
 
     private void divideEntityCell(Cell targetCell, Cell attacker, NPC targetNpc) {
-        double newRad = targetCell.cellRad / Math.sqrt(2);
+        double shield = (targetNpc != null) ? targetNpc.splitShieldFactor : GameConstants.SPLIT_SHIELD_BASE;
+        double newRad = targetCell.cellRad * shield;
 
         double[] geo = computeDivisionGeometry(targetCell, attacker);
         double cellCX = geo[0], cellCY = geo[1];
@@ -371,7 +370,7 @@ public class CollisionHandler {
 
     private void dividePlayerCell(Cell attacker) {
         Cell player = game.getPlayerCell();
-        double newRad = player.cellRad / Math.sqrt(2);
+        double newRad = player.cellRad * game.splitShieldFactor;
 
         double[] geo = computeDivisionGeometry(player, attacker);
         double cellCX = geo[0], cellCY = geo[1];
