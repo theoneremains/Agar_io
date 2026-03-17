@@ -114,6 +114,7 @@ public class NPC {
      * @param usedNames names already taken (to avoid duplicates)
      * @param difficulty the AI difficulty level for this NPC
      */
+    @SuppressWarnings("this-escape")
     public NPC(int cx, int cy, double radius, java.util.Set<String> usedNames, Difficulty difficulty) {
         this.difficulty = difficulty;
         this.cell = new Cell(cx, cy, radius);

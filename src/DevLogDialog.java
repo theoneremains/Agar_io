@@ -21,6 +21,7 @@ import java.util.Map;
  *
  * @author Kamil Yunus Özkaya
  */
+@SuppressWarnings({"serial", "this-escape"})
 public class DevLogDialog extends JDialog {
 
     private final GamePanel gamePanel;

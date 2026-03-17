@@ -10,6 +10,7 @@ import java.util.List;
  * player's last session settings are preserved.
  * @author Kamil Yunus Ozkaya
  */
+@SuppressWarnings({"serial", "this-escape"})
 public class WorldSettingsPanel extends JPanel {
 
     private final MenuBackground menuBg;

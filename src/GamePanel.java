@@ -14,6 +14,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
  * camera tracking, and game state (pause, game over, upgrade selection).
  * @author Kamil Yunus Özkaya
  */
+@SuppressWarnings({"serial", "this-escape"})
 public class GamePanel extends JPanel implements KeyListener {
 
     // ── Game State ───────────────────────────────────────────────────────
@@ -827,14 +828,4 @@ public class GamePanel extends JPanel implements KeyListener {
         }
     }
 
-    // ── Legacy Compatibility ─────────────────────────────────────────────
-    // These provide backward compatibility for code that references the old field names
-
-    /** @deprecated Use {@link GameConstants#CELL_COLORS} instead */
-    public static Color[] colors = GameConstants.CELL_COLORS;
-
-    /** @deprecated Use {@link #getFoodCells()} instead */
-    public CopyOnWriteArrayList<Cell> getCelllist() { return foodCells; }
-    // DevLogDialog accesses celllist directly — provide compatibility
-    public CopyOnWriteArrayList<Cell> celllist = foodCells;
 }

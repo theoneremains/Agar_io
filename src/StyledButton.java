@@ -10,6 +10,7 @@ import java.awt.geom.RoundRectangle2D;
  * Replaces plain JButtons throughout the game for a polished look.
  * @author Kamil Yunus Ozkaya
  */
+@SuppressWarnings({"serial", "this-escape"})
 public class StyledButton extends JButton {
 
     private Color baseColor;
@@ -152,7 +153,7 @@ public class StyledButton extends JButton {
         FontMetrics fm = getFontMetrics(getFont());
         int w = fm.stringWidth(getText()) + 40;
         int h = fm.getHeight() + 20;
-        return new Dimension(Math.max(w, MainClass.BUTTON_WIDTH), Math.max(h, MainClass.BUTTON_HEIGHT));
+        return new Dimension(Math.max(w, GameConstants.BUTTON_WIDTH), Math.max(h, GameConstants.BUTTON_HEIGHT));
     }
 
     /** Sets the base color scheme */
