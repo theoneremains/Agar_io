@@ -210,17 +210,17 @@ public class DevLogDialog extends JDialog {
 
     /** Populates all fields from the current game state. */
     private void populateFields() {
-        Cell p = gamePanel.playerCell;
+        Cell p = gamePanel.getPlayerCell();
         tfName.setText(GamePanel.playerName);
         tfRadius.setText(String.format("%.2f", p.cellRad));
-        tfScore.setText(String.valueOf(gamePanel.hud.score));
+        tfScore.setText(String.valueOf(gamePanel.getHUD().score));
         tfSpeedX.setText(String.format("%.2f", p.speedX));
         tfSpeedY.setText(String.format("%.2f", p.speedY));
         cbSpeedOverride.setSelected(gamePanel.devSpeedOverride);
         // x/y stored as top-left; report the center for clarity
         tfPosX.setText(String.format("%.0f", p.x + p.cellRad));
         tfPosY.setText(String.format("%.0f", p.y + p.cellRad));
-        lblEnemyCount.setText(String.valueOf(gamePanel.celllist.size()));
+        lblEnemyCount.setText(String.valueOf(gamePanel.getFoodCells().size()));
         tfCellDensity.setText(String.format("%.2f", GamePanel.cellDensity));
         lblMaxCells.setText(String.valueOf(gamePanel.getMaxCells()));
     }
@@ -230,7 +230,7 @@ public class DevLogDialog extends JDialog {
      * and unpauses the game. Invalid numeric entries are silently ignored.
      */
     private void applyAndClose() {
-        Cell p = gamePanel.playerCell;
+        Cell p = gamePanel.getPlayerCell();
 
         // Player name
         String name = tfName.getText().trim();
@@ -246,7 +246,7 @@ public class DevLogDialog extends JDialog {
         try {
             int s = Integer.parseInt(tfScore.getText().trim());
             if (s >= 0) {
-                gamePanel.hud.score = s;
+                gamePanel.getHUD().score = s;
                 if (s > GamePanel.highscore) GamePanel.highscore = s;
             }
         } catch (NumberFormatException ignored) {}

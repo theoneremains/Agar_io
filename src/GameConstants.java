@@ -1,0 +1,122 @@
+import java.awt.*;
+
+/**
+ * GameConstants : Centralized constants used across the game.
+ * Prevents magic numbers from being scattered throughout the codebase
+ * and provides a single source of truth for tunable game parameters.
+ * @author Kamil Yunus Ozkaya
+ */
+public final class GameConstants {
+
+    private GameConstants() {} // Prevent instantiation
+
+    // ── Screen & Window ──────────────────────────────────────────────────
+    public static final int DEFAULT_SCREEN_WIDTH  = 1280;
+    public static final int DEFAULT_SCREEN_HEIGHT = 720;
+    public static final int BUTTON_WIDTH  = 200;
+    public static final int BUTTON_HEIGHT = 50;
+
+    // ── World ────────────────────────────────────────────────────────────
+    public static final int DEFAULT_WORLD_WIDTH  = 3840;
+    public static final int DEFAULT_WORLD_HEIGHT = 2160;
+    public static final int MIN_WORLD_WIDTH  = 800;
+    public static final int MIN_WORLD_HEIGHT = 600;
+    public static final int SPAWN_BORDER = 40;
+
+    // ── Cell Properties ──────────────────────────────────────────────────
+    public static final double INITIAL_RADIUS  = 2.0;
+    public static final double DEFAULT_SPEED   = 3.0;
+    public static final double DEFAULT_CELL_DENSITY = 200.0;
+
+    // ── Food Cell Categories ─────────────────────────────────────────────
+    public static final double SMALL_RAD       = 1.0;
+    public static final double MEDIUM_RAD_MIN  = 2.0;
+    public static final double MEDIUM_RAD_MAX  = 5.0;
+    public static final double LARGE_RAD_MIN   = 5.0;
+    public static final double LARGE_RAD_MAX   = 10.0;
+    public static final double SMALL_CHANCE    = 0.90;
+    public static final double MEDIUM_CHANCE   = 0.07;
+    // Large = remaining 3%
+
+    // ── NPCs ─────────────────────────────────────────────────────────────
+    public static final int MIN_NPC_COUNT = 3;
+    public static final double MIN_DIVIDE_RADIUS = 0.7;
+
+    // ── Camera ───────────────────────────────────────────────────────────
+    public static final double INITIAL_ZOOM     = 5.0;
+    public static final double MIN_ZOOM         = 0.8;
+    public static final double ZOOM_LERP        = 0.03;
+    public static final double CAMERA_LERP      = 0.15;
+
+    // ── Division ─────────────────────────────────────────────────────────
+    public static final int DIVISION_CONTACT_TICKS = 200; // 2 seconds at 10ms/tick
+    public static final double DIVISION_SEPARATION = 3.0; // multiplier on radius
+
+    // ── Timing ───────────────────────────────────────────────────────────
+    public static final int GAME_TICK_MS       = 10;   // ~100 FPS
+    public static final int CELL_SPAWN_TICK_MS = 500;
+    public static final int CELL_SPAWN_BATCH   = 10;
+    public static final float SPAWN_ALPHA_STEP = 0.05f;
+
+    // ── Effects ──────────────────────────────────────────────────────────
+    public static final int MAX_CONTACT_EFFECTS   = 20;
+    public static final int MAX_DIVISION_EFFECTS  = 30;
+    public static final long BOUNCE_COOLDOWN_MS   = 200;
+
+    // ── Scoring ──────────────────────────────────────────────────────────
+    public static final int SCORE_MULTIPLIER = 10;
+
+    // ── Color Palette ────────────────────────────────────────────────────
+    public static final Color[] CELL_COLORS = {
+        Color.BLACK, Color.BLUE, Color.CYAN, Color.DARK_GRAY, Color.GRAY,
+        Color.GREEN, Color.LIGHT_GRAY, Color.MAGENTA, Color.ORANGE,
+        Color.YELLOW, Color.PINK
+    };
+
+    // ── UI Theme Colors ──────────────────────────────────────────────────
+    public static final Color BTN_GREEN  = new Color(40, 140, 70);
+    public static final Color BTN_BLUE   = new Color(50, 80, 140);
+    public static final Color BTN_RED    = new Color(140, 50, 50);
+    public static final Color BTN_ON     = new Color(40, 130, 70);
+    public static final Color BTN_OFF    = new Color(120, 50, 50);
+
+    // ── Fonts ────────────────────────────────────────────────────────────
+    public static final String FONT_FAMILY = "SansSerif";
+    public static final String FONT_FAMILY_MONO = "Arial";
+
+    // ── Audio ────────────────────────────────────────────────────────────
+    public static final int SAMPLE_RATE = 44100;
+
+    // ── Saves ────────────────────────────────────────────────────────────
+    public static final int MAX_SAVE_FILES = 3;
+    public static final String SAVES_DIR   = "saves";
+    public static final String SAVE_EXT    = ".cfg";
+
+    // ── Utility Methods ──────────────────────────────────────────────────
+
+    /**
+     * Area-based growth formula: total area is conserved.
+     * @param r1 radius of the eater
+     * @param r2 radius of the eaten
+     * @return new radius after absorbing the eaten cell
+     */
+    public static double growRadius(double r1, double r2) {
+        return Math.sqrt(r1 * r1 + r2 * r2);
+    }
+
+    /**
+     * Computes score from radius using the standard 10x multiplier.
+     */
+    public static int scoreFromRadius(double radius) {
+        return (int) Math.ceil(radius * SCORE_MULTIPLIER);
+    }
+
+    /**
+     * Squared distance between two points (avoids sqrt for comparisons).
+     */
+    public static double distSq(double x1, double y1, double x2, double y2) {
+        double dx = x2 - x1;
+        double dy = y2 - y1;
+        return dx * dx + dy * dy;
+    }
+}

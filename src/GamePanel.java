@@ -1,105 +1,82 @@
 
 import javax.swing.*;
 import java.awt.*;
-import java.awt.Color;
 import java.awt.event.KeyEvent;
 import java.awt.event.KeyListener;
-import java.awt.geom.AffineTransform;
 import java.util.*;
+import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
- * GamePanel : Game runs here
- * It creates the user cell in the middle of the world and random cells in random places
- * Puts the randomcells in a thread-safe CopyOnWriteArrayList
- * When player cell eats a random cell its size is increased as well as the score (by eaten cell's radius)
- * Camera follows the player cell with smooth lerp, supporting toroidal world wrapping
- * Enemy cells have random sizes and appear with a smooth grow-in animation
- * Player name is displayed centered and fitted inside the player cell
- * Fixed speed: constant speed of 3 for all cell sizes (dev log override available)
- * NPC cells move randomly, eat smaller cells, and compete on the scoreboard
- * Easter egg triggers when all NPCs are eliminated; game ends with stats display
- * Developer log (Ctrl+I / Cmd+I) pauses game and shows editable world state
+ * GamePanel : Core game panel that orchestrates the game loop, input handling,
+ * and coordinates between CollisionHandler and GameRenderer.
+ * Creates the player cell and NPC cells, manages food cell spawning,
+ * camera tracking, and game state (pause, game over, easter egg).
  * @author Kamil Yunus Özkaya
  */
 public class GamePanel extends JPanel implements KeyListener {
-    public HUD hud = new HUD();
 
-    private Random random = new Random();
+    // ── Game State ───────────────────────────────────────────────────────
 
-    public static Color[] colors = {Color.BLACK, Color.BLUE, Color.CYAN, Color.DARK_GRAY, Color.GRAY, Color.GREEN, Color.LIGHT_GRAY, Color.MAGENTA, Color.ORANGE, Color.YELLOW, Color.PINK};
+    private final HUD hud = new HUD();
+    private final Random random = new Random();
+    private final MainClass mainClass;
 
+    /** Player display name, set from the settings before game starts */
+    public static String playerName = "Player";
     public static int highscore = 0;
-
     public static Color playerColor = Color.BLACK;
     public static int playerColorIndex = 0;
 
-    /** Player display name, set from the main menu before game starts */
-    public static String playerName = "Player";
+    /**
+     * Cell density: number of food cells per million world-area pixels.
+     * Configurable via WorldSettingsPanel and Dev Log.
+     */
+    public static double cellDensity = GameConstants.DEFAULT_CELL_DENSITY;
 
-    public CopyOnWriteArrayList<Cell> celllist = new CopyOnWriteArrayList<>();
+    // ── Entities ─────────────────────────────────────────────────────────
 
-    /** List of NPC entities that move, eat, and compete */
-    public CopyOnWriteArrayList<NPC> npcList = new CopyOnWriteArrayList<>();
+    private Cell playerCell;
+    private final CopyOnWriteArrayList<Cell> foodCells = new CopyOnWriteArrayList<>();
+    private final CopyOnWriteArrayList<NPC> npcList = new CopyOnWriteArrayList<>();
+    private final Background background;
 
-    public boolean right, left, up, down;
+    // ── Input State ──────────────────────────────────────────────────────
 
-    public Background background;
+    private boolean right, left, up, down;
 
-    public Cell playerCell, randomCell, coloredCell;
+    // ── Camera ───────────────────────────────────────────────────────────
 
-    public double cellrad = 2;                           // Radius of the player cell initially
-
-    // Food cell categories (Small / Medium / Large)
-    // These values are fixed and cannot be changed in-game.
-    private static final double SMALL_RAD        = 1;     // Small: radius 1
-    private static final double MEDIUM_RAD_MIN   = 2;     // Medium: radius 2–5
-    private static final double MEDIUM_RAD_MAX   = 5;
-    private static final double LARGE_RAD_MIN    = 5;     // Large: radius 5–10
-    private static final double LARGE_RAD_MAX    = 10;
-    private static final double SMALL_CHANCE     = 0.90;  // 90% small
-    private static final double MEDIUM_CHANCE    = 0.07;  // 7% medium
-    // Large = remaining 3%
-    private static final int SPAWN_BORDER        = 40;    // spawn boundary buffer
-
-    // Speed constants — fixed default speed of 3 (no longer scales with size)
-    private static final double DEFAULT_SPEED     = 3;     // constant player speed
-    private static final double INITIAL_RAD       = 2;     // player starting radius
-
-    private Sound music = new Sound("coolMusic.wav", 1); // Easter egg music
-
-    public int mus = 0;
-
-    // Camera position in world coordinates (double for smooth lerp)
     private double cameraX = 0;
     private double cameraY = 0;
+    private double cameraZoom = GameConstants.INITIAL_ZOOM;
 
-    // Dynamic camera zoom: starts zoomed in, pulls out as player grows
-    private static final double INITIAL_ZOOM = 5.0;
-    private static final double MIN_ZOOM     = 0.8;
-    private static final double ZOOM_LERP    = 0.03;
-    private double cameraZoom = INITIAL_ZOOM;
+    // ── Visual Effects ───────────────────────────────────────────────────
 
-    // Division mechanic: cells bigger but <2x area divide instead of eating
-    private static final int DIVISION_CONTACT_TICKS = 200; // 2 seconds at 10ms/tick
-    private HashMap<Long, Integer> divisionContacts = new HashMap<>();
-    public CopyOnWriteArrayList<DivisionEffect> divisionEffects = new CopyOnWriteArrayList<>();
-    public CopyOnWriteArrayList<EatEffect> eatEffects = new CopyOnWriteArrayList<>();
-    public CopyOnWriteArrayList<ContactEffect> contactEffects = new CopyOnWriteArrayList<>();
+    private final CopyOnWriteArrayList<DivisionEffect> divisionEffects = new CopyOnWriteArrayList<>();
+    private final CopyOnWriteArrayList<EatEffect> eatEffects = new CopyOnWriteArrayList<>();
+    private final CopyOnWriteArrayList<ContactEffect> contactEffects = new CopyOnWriteArrayList<>();
 
-    /** Ambient game sound line — stopped on game over or menu return */
+    // ── Audio ────────────────────────────────────────────────────────────
+
     private javax.sound.sampled.SourceDataLine gameAmbientLine;
+    private final Sound easterEggMusic = new Sound("coolMusic.wav", 1);
+
+    // ── Game Flags ───────────────────────────────────────────────────────
 
     /** When true the game loop is paused (used by the developer log) */
     public volatile boolean paused = false;
 
-    /** When true the game has ended (all NPCs eliminated or player eaten) */
+    /** When true the game has ended */
     public volatile boolean gameOver = false;
 
     /** When true, the easter egg is playing and player actions are frozen */
     private volatile boolean easterEggActive = false;
 
-    /** Saved elapsed time (ms) at the moment the game is won / player dies, before easter egg resets timer */
+    /** Whether the easter egg sequence has been triggered at all */
+    private boolean easterEggTriggered = false;
+
+    /** Saved elapsed time (ms) at the moment the game is won / player dies */
     private long finalElapsedTime = -1;
 
     /** When true, skip automatic speed recalculation (dev override active) */
@@ -109,48 +86,40 @@ public class GamePanel extends JPanel implements KeyListener {
     private DevLogDialog devLogDialog = null;
 
     /** Number of NPC players in this game session */
-    private int npcCount;
+    private final int npcCount;
 
-    /**
-     * Cell density: number of food cells per million world-area pixels.
-     * Default: 200 cells per 1000x1000 area = 200 cells per million px.
-     * Configurable via Options and Dev Log.
-     */
-    public static double cellDensity = 200.0;
+    /** Flag to signal game threads to stop */
+    private volatile boolean running = true;
 
-    /** Returns the maximum number of food cells based on current world size and density */
-    public int getMaxCells() {
-        double worldArea = (double) MainClass.WORLD_WIDTH * MainClass.WORLD_HEIGHT / 1_000_000.0;
-        return Math.max(5, (int) Math.round(cellDensity * worldArea));
-    }
+    // ── Subsystems ───────────────────────────────────────────────────────
 
-    MainClass mainClass;
+    private final CollisionHandler collisionHandler;
+    private final GameRenderer renderer;
 
-    // Creates the panel and runs the threads
+    // ── Constructor ──────────────────────────────────────────────────────
+
     public GamePanel(MainClass mainClass, int npcCount) {
-
         this.mainClass = mainClass;
         this.npcCount = npcCount;
+        this.collisionHandler = new CollisionHandler(this);
+        this.renderer = new GameRenderer(this);
 
         setSize(MainClass.SCREEN_WIDTH, MainClass.SCREEN_HEIGHT);
         setPreferredSize(new Dimension(MainClass.SCREEN_WIDTH, MainClass.SCREEN_HEIGHT));
-
         setFocusable(true);
-
         addKeyListener(this);
-
         setVisible(true);
 
-        background = new Background(MainClass.SCREEN_WIDTH, MainClass.SCREEN_HEIGHT);
+        background = new Background();
 
         // Player spawns at the center of the world
-        playerCell = new Cell(MainClass.WORLD_WIDTH / 2, MainClass.WORLD_HEIGHT / 2, cellrad);
+        playerCell = new Cell(MainClass.WORLD_WIDTH / 2, MainClass.WORLD_HEIGHT / 2, GameConstants.INITIAL_RADIUS);
         playerCell.cellColor = playerColor;
-        playerCell.spawnAlpha = 1f; // player appears immediately
-        playerCell.speedX = DEFAULT_SPEED;
-        playerCell.speedY = DEFAULT_SPEED;
+        playerCell.spawnAlpha = 1f;
+        playerCell.speedX = GameConstants.DEFAULT_SPEED;
+        playerCell.speedY = GameConstants.DEFAULT_SPEED;
 
-        // Initialize camera position centered on player (accounting for zoom)
+        // Initialize camera centered on player
         double initVisW = MainClass.SCREEN_WIDTH / cameraZoom;
         double initVisH = MainClass.SCREEN_HEIGHT / cameraZoom;
         cameraX = playerCell.x + playerCell.cellRad - initVisW / 2.0;
@@ -158,36 +127,72 @@ public class GamePanel extends JPanel implements KeyListener {
         cameraX = Math.max(0, Math.min(cameraX, MainClass.WORLD_WIDTH - initVisW));
         cameraY = Math.max(0, Math.min(cameraY, MainClass.WORLD_HEIGHT - initVisH));
 
-        // First enemy cell at a non-overlapping world position
-        randomCell = generateNonOverlappingCell();
-        randomCell.cellColor = Color.BLUE;
-        celllist.add(randomCell);
-
-        // Spawn NPC cells at non-overlapping positions
+        // Spawn initial food cell and NPCs
+        Cell firstFood = generateNonOverlappingCell();
+        firstFood.cellColor = Color.BLUE;
+        foodCells.add(firstFood);
         spawnNPCs();
 
-        cellThread();
-
-        runGameThread();
+        // Start game threads
+        startCellSpawnThread();
+        startGameThread();
 
         // Start ambient game sound
         gameAmbientLine = Sound.playGameAmbient();
     }
 
-    /** Spawns the configured number of NPC cells at non-overlapping world positions.
-     *  Difficulty is assigned in round-robin: EASY, MEDIUM, HARD, EASY, MEDIUM, HARD, ... */
+    // ── Public Accessors (for CollisionHandler and GameRenderer) ─────────
+
+    public Cell getPlayerCell() { return playerCell; }
+    public CopyOnWriteArrayList<Cell> getFoodCells() { return foodCells; }
+    public CopyOnWriteArrayList<NPC> getNPCList() { return npcList; }
+    public CopyOnWriteArrayList<DivisionEffect> getDivisionEffects() { return divisionEffects; }
+    public CopyOnWriteArrayList<EatEffect> getEatEffects() { return eatEffects; }
+    public CopyOnWriteArrayList<ContactEffect> getContactEffects() { return contactEffects; }
+    public Background getWorldBackground() { return background; }
+    public HUD getHUD() { return hud; }
+    public double getCameraX() { return cameraX; }
+    public double getCameraY() { return cameraY; }
+    public double getCameraZoom() { return cameraZoom; }
+    public boolean isGameOver() { return gameOver; }
+    public boolean isPaused() { return paused; }
+    public boolean isEasterEggActive() { return easterEggActive; }
+    public boolean wasEasterEggTriggered() { return easterEggTriggered; }
+
+    public long getDisplayElapsedTime() {
+        return finalElapsedTime >= 0 ? finalElapsedTime : hud.elapsedTime;
+    }
+
+    /** Returns the maximum number of food cells based on current world size and density */
+    public int getMaxCells() {
+        double worldArea = (double) MainClass.WORLD_WIDTH * MainClass.WORLD_HEIGHT / 1_000_000.0;
+        return Math.max(5, (int) Math.round(cellDensity * worldArea));
+    }
+
+    /** Updates the player score to match current radius */
+    public void updatePlayerScore() {
+        hud.score = GameConstants.scoreFromRadius(playerCell.cellRad);
+        if (hud.score > highscore) highscore = hud.score;
+    }
+
+    // ── NPC Spawning ─────────────────────────────────────────────────────
+
     private void spawnNPCs() {
         Set<String> usedNames = new HashSet<>();
         usedNames.add(playerName);
         NPC.Difficulty[] difficulties = NPC.Difficulty.values();
         for (int i = 0; i < npcCount; i++) {
-            int cx = SPAWN_BORDER + random.nextInt(MainClass.WORLD_WIDTH  - 2 * SPAWN_BORDER);
-            int cy = SPAWN_BORDER + random.nextInt(MainClass.WORLD_HEIGHT - 2 * SPAWN_BORDER);
+            int cx = GameConstants.SPAWN_BORDER + random.nextInt(
+                Math.max(1, MainClass.WORLD_WIDTH - 2 * GameConstants.SPAWN_BORDER));
+            int cy = GameConstants.SPAWN_BORDER + random.nextInt(
+                Math.max(1, MainClass.WORLD_HEIGHT - 2 * GameConstants.SPAWN_BORDER));
             NPC.Difficulty diff = difficulties[i % difficulties.length];
-            NPC npc = new NPC(cx, cy, INITIAL_RAD, usedNames, diff);
+            NPC npc = new NPC(cx, cy, GameConstants.INITIAL_RADIUS, usedNames, diff);
             npcList.add(npc);
         }
     }
+
+    // ── Food Cell Generation ─────────────────────────────────────────────
 
     /**
      * Returns a random food cell radius based on the three fixed categories:
@@ -195,493 +200,294 @@ public class GamePanel extends JPanel implements KeyListener {
      */
     private double randomFoodRadius() {
         double roll = random.nextDouble();
-        if (roll < SMALL_CHANCE) {
-            return SMALL_RAD;
-        } else if (roll < SMALL_CHANCE + MEDIUM_CHANCE) {
-            return MEDIUM_RAD_MIN + random.nextDouble() * (MEDIUM_RAD_MAX - MEDIUM_RAD_MIN);
+        if (roll < GameConstants.SMALL_CHANCE) {
+            return GameConstants.SMALL_RAD;
+        } else if (roll < GameConstants.SMALL_CHANCE + GameConstants.MEDIUM_CHANCE) {
+            return GameConstants.MEDIUM_RAD_MIN + random.nextDouble() * (GameConstants.MEDIUM_RAD_MAX - GameConstants.MEDIUM_RAD_MIN);
         } else {
-            return LARGE_RAD_MIN + random.nextDouble() * (LARGE_RAD_MAX - LARGE_RAD_MIN);
+            return GameConstants.LARGE_RAD_MIN + random.nextDouble() * (GameConstants.LARGE_RAD_MAX - GameConstants.LARGE_RAD_MIN);
         }
     }
 
     /**
-     * Generates a new food cell at a position that does not overlap the player, any
-     * existing food cell, or any NPC. Attempts up to 50 random positions before falling back.
-     * Food cells cannot move, cannot eat other cells. Their radius is determined by
-     * the fixed category distribution (Small 90%, Medium 7%, Large 3%).
+     * Generates a new food cell at a position that does not overlap
+     * the player, existing food cells, or NPCs.
      */
     private Cell generateNonOverlappingCell() {
         final int MAX_ATTEMPTS = 50;
+        int worldW = Math.max(1, MainClass.WORLD_WIDTH - 2 * GameConstants.SPAWN_BORDER);
+        int worldH = Math.max(1, MainClass.WORLD_HEIGHT - 2 * GameConstants.SPAWN_BORDER);
+
         for (int attempt = 0; attempt < MAX_ATTEMPTS; attempt++) {
-            int cx = SPAWN_BORDER + random.nextInt(MainClass.WORLD_WIDTH  - 2 * SPAWN_BORDER);
-            int cy = SPAWN_BORDER + random.nextInt(MainClass.WORLD_HEIGHT - 2 * SPAWN_BORDER);
+            int cx = GameConstants.SPAWN_BORDER + random.nextInt(worldW);
+            int cy = GameConstants.SPAWN_BORDER + random.nextInt(worldH);
             double r = randomFoodRadius();
 
             // Check clearance against the player cell
-            double dx = cx - (playerCell.x + playerCell.cellRad);
-            double dy = cy - (playerCell.y + playerCell.cellRad);
-            if (Math.sqrt(dx * dx + dy * dy) < playerCell.cellRad + r + 20) continue;
+            if (GameConstants.distSq(cx, cy, playerCell.getCenterX(), playerCell.getCenterY())
+                    < (playerCell.cellRad + r + 20) * (playerCell.cellRad + r + 20)) continue;
 
-            // Check clearance against all existing food cells
+            // Check clearance against existing food cells
             boolean overlaps = false;
-            for (Cell c : celllist) {
-                double ex = cx - (c.x + c.cellRad);
-                double ey = cy - (c.y + c.cellRad);
-                if (Math.sqrt(ex * ex + ey * ey) < c.cellRad + r + 10) {
+            for (Cell c : foodCells) {
+                if (GameConstants.distSq(cx, cy, c.getCenterX(), c.getCenterY())
+                        < (c.cellRad + r + 10) * (c.cellRad + r + 10)) {
                     overlaps = true;
                     break;
                 }
             }
             if (overlaps) continue;
 
-            // Check clearance against all NPC cells
+            // Check clearance against NPCs
             for (NPC npc : npcList) {
                 if (!npc.alive) continue;
-                double nx = cx - (npc.cell.x + npc.cell.cellRad);
-                double ny = cy - (npc.cell.y + npc.cell.cellRad);
-                if (Math.sqrt(nx * nx + ny * ny) < npc.cell.cellRad + r + 10) {
+                if (GameConstants.distSq(cx, cy, npc.cell.getCenterX(), npc.cell.getCenterY())
+                        < (npc.cell.cellRad + r + 10) * (npc.cell.cellRad + r + 10)) {
                     overlaps = true;
                     break;
                 }
             }
             if (!overlaps) return new Cell(cx, cy, r);
         }
-        // Fallback (rare): return a cell ignoring overlaps
+        // Fallback: place without overlap check (rare)
         return new Cell(
-            SPAWN_BORDER + random.nextInt(MainClass.WORLD_WIDTH  - 2 * SPAWN_BORDER),
-            SPAWN_BORDER + random.nextInt(MainClass.WORLD_HEIGHT - 2 * SPAWN_BORDER),
+            GameConstants.SPAWN_BORDER + random.nextInt(worldW),
+            GameConstants.SPAWN_BORDER + random.nextInt(worldH),
             randomFoodRadius());
     }
 
-    /**
-     * Spawns the initial batch of food cells to fill up the world,
-     * then continuously tops up at a steady rate.
-     */
-    public void cellThread() {
-        Thread cellthread = new Thread() {
-            @Override
-            public void run() {
-                // Initial batch spawn: fill up to max cells quickly
-                int maxCells = getMaxCells();
-                while (celllist.size() < maxCells && !gameOver) {
-                    Cell c = generateNonOverlappingCell();
-                    c.cellColor = colors[random.nextInt(colors.length)];
-                    c.spawnAlpha = 1f; // initial cells appear immediately
-                    celllist.add(c);
+    // ── Game Threads ─────────────────────────────────────────────────────
+
+    /** Spawns initial food cells then continuously tops up */
+    private void startCellSpawnThread() {
+        Thread cellThread = new Thread(() -> {
+            // Initial batch spawn
+            int maxCells = getMaxCells();
+            while (foodCells.size() < maxCells && !gameOver && running) {
+                Cell c = generateNonOverlappingCell();
+                c.cellColor = GameConstants.CELL_COLORS[random.nextInt(GameConstants.CELL_COLORS.length)];
+                c.spawnAlpha = 1f;
+                foodCells.add(c);
+            }
+            // Continuous top-up
+            while (running) {
+                if (!gameOver) {
+                    int deficit = getMaxCells() - foodCells.size();
+                    int batch = Math.min(deficit, GameConstants.CELL_SPAWN_BATCH);
+                    for (int i = 0; i < batch && running; i++) {
+                        Cell c = generateNonOverlappingCell();
+                        c.cellColor = GameConstants.CELL_COLORS[random.nextInt(GameConstants.CELL_COLORS.length)];
+                        foodCells.add(c);
+                    }
                 }
-                // Continuous top-up: spawn a small batch every tick to replace eaten cells
-                while (true) {
-                    if (!gameOver) {
-                        int deficit = getMaxCells() - celllist.size();
-                        int batch = Math.min(deficit, 10); // spawn up to 10 per cycle
-                        for (int i = 0; i < batch; i++) {
-                            Cell c = generateNonOverlappingCell();
-                            c.cellColor = colors[random.nextInt(colors.length)];
-                            // spawnAlpha starts at 0 — grow-in animation handled in runGameThread
-                            celllist.add(c);
-                        }
-                    }
-                    repaint();
-                    try {
-                        Thread.sleep(500); // check every 500ms
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();
-                    }
+                repaint();
+                try {
+                    Thread.sleep(GameConstants.CELL_SPAWN_TICK_MS);
+                } catch (InterruptedException e) {
+                    break;
                 }
             }
-        };
-        cellthread.setDaemon(true);
-        cellthread.start();
+        });
+        cellThread.setDaemon(true);
+        cellThread.start();
     }
 
-    // Game runs in this thread
-    public void runGameThread() {
-        Thread thread = new Thread() {
-            @Override
-            public void run() {
-                while (true) {
-                    if (!paused && !gameOver) {
-                        // Fixed speed: constant DEFAULT_SPEED (no scaling with size)
-                        // Dev log speed override still respected for debugging
-                        if (!devSpeedOverride) {
-                            playerCell.speedX = DEFAULT_SPEED;
-                            playerCell.speedY = DEFAULT_SPEED;
-                        }
+    /** Main game loop thread */
+    private void startGameThread() {
+        Thread thread = new Thread(() -> {
+            while (running) {
+                if (!paused && !gameOver) {
+                    // Fixed speed
+                    if (!devSpeedOverride) {
+                        playerCell.speedX = GameConstants.DEFAULT_SPEED;
+                        playerCell.speedY = GameConstants.DEFAULT_SPEED;
+                    }
 
-                        playerCell.updateCellPos(right, left, up, down); // position updated (toroidal)
+                    playerCell.updateCellPos(right, left, up, down);
 
-                        // Advance spawn animation for all enemy cells
-                        for (Cell c : celllist) {
-                            if (c.spawnAlpha < 1f) c.spawnAlpha = Math.min(1f, c.spawnAlpha + 0.05f);
-                        }
-
-                        // Update NPC positions and AI (with navigation helper)
-                        for (NPC npc : npcList) {
-                            if (npc.alive) npc.update(playerCell, npcList, celllist);
-                        }
-
-                        // Dynamic camera zoom: starts zoomed in, pulls out as player grows
-                        double targetZoom = Math.max(MIN_ZOOM, INITIAL_ZOOM * Math.sqrt(INITIAL_RAD / playerCell.cellRad));
-                        cameraZoom += (targetZoom - cameraZoom) * ZOOM_LERP;
-
-                        // Smooth camera lerp — follows player center (accounting for zoom)
-                        double visW = MainClass.SCREEN_WIDTH / cameraZoom;
-                        double visH = MainClass.SCREEN_HEIGHT / cameraZoom;
-                        double targetX = playerCell.x + playerCell.cellRad - visW / 2.0;
-                        double targetY = playerCell.y + playerCell.cellRad - visH / 2.0;
-                        if (visW >= MainClass.WORLD_WIDTH) {
-                            targetX = (MainClass.WORLD_WIDTH - visW) / 2.0;
-                        } else {
-                            targetX = Math.max(0, Math.min(targetX, MainClass.WORLD_WIDTH - visW));
-                        }
-                        if (visH >= MainClass.WORLD_HEIGHT) {
-                            targetY = (MainClass.WORLD_HEIGHT - visH) / 2.0;
-                        } else {
-                            targetY = Math.max(0, Math.min(targetY, MainClass.WORLD_HEIGHT - visH));
-                        }
-
-                        // Snap camera instantly when player wraps across a world boundary
-                        if (Math.abs(targetX - cameraX) > MainClass.WORLD_WIDTH  / 2.0) cameraX = targetX;
-                        if (Math.abs(targetY - cameraY) > MainClass.WORLD_HEIGHT / 2.0) cameraY = targetY;
-
-                        cameraX += (targetX - cameraX) * 0.15;
-                        cameraY += (targetY - cameraY) * 0.15;
-
-                        hud.getElapsedTime(); // Each time thread executed, we get the elapsed time
-
-                        // Player eats food cells (disabled during easter egg)
-                        if (!easterEggActive) {
-                            for (int i = 0; i < celllist.size(); i++) {
-                                if (playerCell.isCollision(playerCell, celllist.get(i))) {
-                                    double eatenRad = celllist.get(i).cellRad;
-                                    double eatCX = celllist.get(i).x + eatenRad;
-                                    double eatCY = celllist.get(i).y + eatenRad;
-                                    Color eatColor = celllist.get(i).cellColor;
-                                    celllist.remove(i);
-                                    Sound.playEatSound();
-                                    eatEffects.add(new EatEffect(eatCX, eatCY, eatenRad, eatColor));
-                                    double newRad = Math.sqrt(playerCell.cellRad * playerCell.cellRad + eatenRad * eatenRad);
-                                    playerCell.cellRad = newRad;
-                                    // Score = 10x current radius (updated after growth)
-                                    hud.score = (int) Math.ceil(playerCell.cellRad * 10);
-                                    if (hud.score > highscore) highscore = hud.score;
-                                }
-                            }
-                        }
-
-                        // Player eats NPC cells (player bigger than NPC; disabled during easter egg)
-                        if (!easterEggActive) {
-                            for (NPC npc : npcList) {
-                                if (npc.alive && playerCell.isCollision(playerCell, npc.cell)) {
-                                    double eatenRad = npc.cell.cellRad;
-                                    double eatCX = npc.cell.x + eatenRad;
-                                    double eatCY = npc.cell.y + eatenRad;
-                                    npc.alive = false;
-                                    npc.score = (int) Math.ceil(npc.cell.cellRad * 10); // final score = 10x radius at death
-                                    Sound.playEatSound();
-                                    eatEffects.add(new EatEffect(eatCX, eatCY, eatenRad, npc.cell.cellColor));
-                                    double newRad = Math.sqrt(playerCell.cellRad * playerCell.cellRad + eatenRad * eatenRad);
-                                    playerCell.cellRad = newRad;
-                                    hud.score = (int) Math.ceil(playerCell.cellRad * 10);
-                                    if (hud.score > highscore) highscore = hud.score;
-                                }
-                            }
-                        }
-
-                        // NPCs eat food cells
-                        for (NPC npc : npcList) {
-                            if (!npc.alive) continue;
-                            for (int i = 0; i < celllist.size(); i++) {
-                                if (i >= celllist.size()) break;
-                                Cell food = celllist.get(i);
-                                if (npc.cell.isCollision(npc.cell, food)) {
-                                    double eatenRad = food.cellRad;
-                                    double eatCX = food.x + eatenRad;
-                                    double eatCY = food.y + eatenRad;
-                                    Color eatColor = food.cellColor;
-                                    celllist.remove(i);
-                                    npc.grow(eatenRad);
-                                    eatEffects.add(new EatEffect(eatCX, eatCY, eatenRad, eatColor));
-                                    i--;
-                                }
-                            }
-                        }
-
-                        // NPCs eat other NPCs (bigger eats smaller)
-                        for (NPC predator : npcList) {
-                            if (!predator.alive) continue;
-                            for (NPC prey : npcList) {
-                                if (!prey.alive || predator == prey) continue;
-                                if (predator.cell.isCollision(predator.cell, prey.cell)) {
-                                    double eatenRad = prey.cell.cellRad;
-                                    double eatCX = prey.cell.x + eatenRad;
-                                    double eatCY = prey.cell.y + eatenRad;
-                                    prey.alive = false;
-                                    prey.score = (int) Math.ceil(prey.cell.cellRad * 10);
-                                    predator.grow(eatenRad);
-                                    eatEffects.add(new EatEffect(eatCX, eatCY, eatenRad, prey.cell.cellColor));
-                                }
-                            }
-                        }
-
-                        // NPC eats the player (NPC bigger than player)
-                        for (NPC npc : npcList) {
-                            if (!npc.alive) continue;
-                            if (npc.cell.isCollision(npc.cell, playerCell)) {
-                                // Player is eaten — set final score = 10x radius, game over
-                                hud.score = (int) Math.ceil(playerCell.cellRad * 10);
-                                // Save the actual elapsed time at the moment of death
-                                hud.getElapsedTime();
-                                finalElapsedTime = hud.elapsedTime;
-                                npc.grow((double) playerCell.cellRad);
-                                eatEffects.add(new EatEffect(
-                                    playerCell.x + playerCell.cellRad, playerCell.y + playerCell.cellRad,
-                                    playerCell.cellRad, playerCell.cellColor));
-                                triggerGameOver();
-                                break;
-                            }
-                        }
-
-                        // ========== DIVISION MECHANIC ==========
-                        HashMap<Long, Integer> newContacts = new HashMap<>();
-
-                        // Player divides food cells
-                        if (!gameOver) {
-                            for (int i = 0; i < celllist.size(); i++) {
-                                Cell food = celllist.get(i);
-                                if (playerCell.canDivide(food) && playerCell.isTouching(food)) {
-                                    long key = contactKey(playerCell, food);
-                                    int ticks = divisionContacts.getOrDefault(key, 0) + 1;
-                                    if (ticks >= DIVISION_CONTACT_TICKS) {
-                                        divideFoodCell(i, playerCell);
-                                        i--;
-                                    } else {
-                                        newContacts.put(key, ticks);
-                                        // Spawn division contact effect periodically
-                                        if (ticks % 30 == 1 && contactEffects.size() < 30) {
-                                            double midX = (playerCell.x + playerCell.cellRad + food.x + food.cellRad) / 2;
-                                            double midY = (playerCell.y + playerCell.cellRad + food.y + food.cellRad) / 2;
-                                            contactEffects.add(new ContactEffect(midX, midY,
-                                                Math.min(playerCell.cellRad, food.cellRad), food.cellColor, true));
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        // Player divides NPC cells
-                        if (!gameOver) {
-                            for (NPC npc : npcList) {
-                                if (!npc.alive) continue;
-                                if (playerCell.canDivide(npc.cell) && playerCell.isTouching(npc.cell)) {
-                                    long key = contactKey(playerCell, npc.cell);
-                                    int ticks = divisionContacts.getOrDefault(key, 0) + 1;
-                                    if (ticks >= DIVISION_CONTACT_TICKS) {
-                                        divideEntityCell(npc.cell, playerCell, npc);
-                                    } else {
-                                        newContacts.put(key, ticks);
-                                    }
-                                }
-                            }
-                        }
-
-                        // NPCs divide food cells
-                        for (NPC npc : npcList) {
-                            if (!npc.alive) continue;
-                            for (int i = 0; i < celllist.size(); i++) {
-                                if (i >= celllist.size()) break;
-                                Cell food = celllist.get(i);
-                                if (npc.cell.canDivide(food) && npc.cell.isTouching(food)) {
-                                    long key = contactKey(npc.cell, food);
-                                    int ticks = divisionContacts.getOrDefault(key, 0) + 1;
-                                    if (ticks >= DIVISION_CONTACT_TICKS) {
-                                        divideFoodCell(i, npc.cell);
-                                        i--;
-                                    } else {
-                                        newContacts.put(key, ticks);
-                                    }
-                                }
-                            }
-                        }
-
-                        // NPCs divide other NPCs
-                        for (NPC predator : npcList) {
-                            if (!predator.alive) continue;
-                            for (NPC prey : npcList) {
-                                if (!prey.alive || predator == prey) continue;
-                                if (predator.cell.canDivide(prey.cell) && predator.cell.isTouching(prey.cell)) {
-                                    long key = contactKey(predator.cell, prey.cell);
-                                    int ticks = divisionContacts.getOrDefault(key, 0) + 1;
-                                    if (ticks >= DIVISION_CONTACT_TICKS) {
-                                        divideEntityCell(prey.cell, predator.cell, prey);
-                                    } else {
-                                        newContacts.put(key, ticks);
-                                    }
-                                }
-                            }
-                        }
-
-                        // NPCs divide the player
-                        if (!gameOver) {
-                            for (NPC npc : npcList) {
-                                if (!npc.alive) continue;
-                                if (npc.cell.canDivide(playerCell) && npc.cell.isTouching(playerCell)) {
-                                    long key = contactKey(npc.cell, playerCell);
-                                    int ticks = divisionContacts.getOrDefault(key, 0) + 1;
-                                    if (ticks >= DIVISION_CONTACT_TICKS) {
-                                        dividePlayerCell(npc.cell);
-                                    } else {
-                                        newContacts.put(key, ticks);
-                                    }
-                                }
-                            }
-                        }
-
-                        divisionContacts = newContacts;
-
-                        // Update division effects
-                        for (int i = divisionEffects.size() - 1; i >= 0; i--) {
-                            DivisionEffect effect = divisionEffects.get(i);
-                            effect.update();
-                            if (effect.finished) divisionEffects.remove(i);
-                        }
-
-                        // Update eat effects
-                        for (int i = eatEffects.size() - 1; i >= 0; i--) {
-                            EatEffect effect = eatEffects.get(i);
-                            effect.update();
-                            if (effect.finished) eatEffects.remove(i);
-                        }
-
-                        // Update contact effects
-                        for (int i = contactEffects.size() - 1; i >= 0; i--) {
-                            ContactEffect effect = contactEffects.get(i);
-                            effect.update();
-                            if (effect.finished) contactEffects.remove(i);
-                        }
-
-                        // Bounce effect: player touches cell it can't eat (no division either)
-                        for (Cell food : celllist) {
-                            if (!playerCell.canEat(food) && !playerCell.canDivide(food)
-                                && food.cellRad > playerCell.cellRad + 0.5 && playerCell.isTouching(food)) {
-                                double midX = (playerCell.x + playerCell.cellRad + food.x + food.cellRad) / 2;
-                                double midY = (playerCell.y + playerCell.cellRad + food.y + food.cellRad) / 2;
-                                if (contactEffects.size() < 20) {
-                                    contactEffects.add(new ContactEffect(midX, midY,
-                                        Math.min(playerCell.cellRad, food.cellRad), new Color(255, 200, 100), false));
-                                    Sound.playBounceSound();
-                                }
-                            }
-                        }
-                        // Bounce effect: player touches NPC it can't eat
-                        for (NPC npc : npcList) {
-                            if (!npc.alive) continue;
-                            if (!playerCell.canEat(npc.cell) && !playerCell.canDivide(npc.cell)
-                                && npc.cell.cellRad > playerCell.cellRad + 0.5 && playerCell.isTouching(npc.cell)) {
-                                double midX = (playerCell.x + playerCell.cellRad + npc.cell.x + npc.cell.cellRad) / 2;
-                                double midY = (playerCell.y + playerCell.cellRad + npc.cell.y + npc.cell.cellRad) / 2;
-                                if (contactEffects.size() < 20) {
-                                    contactEffects.add(new ContactEffect(midX, midY,
-                                        Math.min(playerCell.cellRad, npc.cell.cellRad), new Color(255, 100, 100), false));
-                                    Sound.playBounceSound();
-                                }
-                            }
-                        }
-
-                        // Easter egg: when all NPCs are dead, play the sound and end the game
-                        if (!gameOver && mus == 0) {
-                            boolean allNpcsDead = true;
-                            for (NPC npc : npcList) {
-                                if (npc.alive) { allNpcsDead = false; break; }
-                            }
-                            if (allNpcsDead) {
-                                mus++;
-                                // Save the actual game completion time before easter egg resets it
-                                hud.getElapsedTime();
-                                finalElapsedTime = hud.elapsedTime;
-                                // Freeze player score at the moment of winning
-                                hud.score = (int) Math.ceil(playerCell.cellRad * 10);
-                                if (hud.score > highscore) highscore = hud.score;
-                                easterEggActive = true;
-                                hud.resetTime();
-                                music.playSound();
-                                // Wait for music to finish (~20 seconds), then end the game
-                                Thread endThread = new Thread(() -> {
-                                    try {
-                                        Thread.sleep(20000);
-                                    } catch (InterruptedException e) {
-                                        e.printStackTrace();
-                                    }
-                                    triggerGameOver();
-                                });
-                                endThread.setDaemon(true);
-                                endThread.start();
-                            }
+                    // Advance spawn animation
+                    for (Cell c : foodCells) {
+                        if (c.spawnAlpha < 1f) {
+                            c.spawnAlpha = Math.min(1f, c.spawnAlpha + GameConstants.SPAWN_ALPHA_STEP);
                         }
                     }
 
-                    repaint(); // Draw everything again when thread is executed
-                    try {
-                        Thread.sleep(10); // 10 ms tick (~100 FPS)
-                    } catch (InterruptedException e) {
-                        e.printStackTrace();
+                    // Update NPCs
+                    for (NPC npc : npcList) {
+                        if (npc.alive) npc.update(playerCell, npcList, foodCells);
                     }
+
+                    // Dynamic camera zoom
+                    double targetZoom = Math.max(GameConstants.MIN_ZOOM,
+                        GameConstants.INITIAL_ZOOM * Math.sqrt(GameConstants.INITIAL_RADIUS / playerCell.cellRad));
+                    cameraZoom += (targetZoom - cameraZoom) * GameConstants.ZOOM_LERP;
+
+                    // Camera tracking
+                    updateCamera();
+
+                    hud.updateElapsedTime();
+
+                    // Collision handling (eating, division, bounce)
+                    collisionHandler.update();
+
+                    // Update visual effects
+                    updateEffects();
+
+                    // Check easter egg condition
+                    checkEasterEgg();
+                }
+
+                repaint();
+                try {
+                    Thread.sleep(GameConstants.GAME_TICK_MS);
+                } catch (InterruptedException e) {
+                    break;
                 }
             }
-        };
+        });
         thread.setDaemon(true);
         thread.start();
     }
 
-    /** Triggers the game over state and displays the end screen */
+    // ── Camera ───────────────────────────────────────────────────────────
+
+    private void updateCamera() {
+        double visW = MainClass.SCREEN_WIDTH / cameraZoom;
+        double visH = MainClass.SCREEN_HEIGHT / cameraZoom;
+        double targetX = playerCell.x + playerCell.cellRad - visW / 2.0;
+        double targetY = playerCell.y + playerCell.cellRad - visH / 2.0;
+
+        if (visW >= MainClass.WORLD_WIDTH) {
+            targetX = (MainClass.WORLD_WIDTH - visW) / 2.0;
+        } else {
+            targetX = Math.max(0, Math.min(targetX, MainClass.WORLD_WIDTH - visW));
+        }
+        if (visH >= MainClass.WORLD_HEIGHT) {
+            targetY = (MainClass.WORLD_HEIGHT - visH) / 2.0;
+        } else {
+            targetY = Math.max(0, Math.min(targetY, MainClass.WORLD_HEIGHT - visH));
+        }
+
+        // Snap camera instantly when player wraps across world boundary
+        if (Math.abs(targetX - cameraX) > MainClass.WORLD_WIDTH / 2.0) cameraX = targetX;
+        if (Math.abs(targetY - cameraY) > MainClass.WORLD_HEIGHT / 2.0) cameraY = targetY;
+
+        cameraX += (targetX - cameraX) * GameConstants.CAMERA_LERP;
+        cameraY += (targetY - cameraY) * GameConstants.CAMERA_LERP;
+    }
+
+    // ── Visual Effects Update ────────────────────────────────────────────
+
+    private void updateEffects() {
+        for (int i = divisionEffects.size() - 1; i >= 0; i--) {
+            divisionEffects.get(i).update();
+            if (divisionEffects.get(i).finished) divisionEffects.remove(i);
+        }
+        for (int i = eatEffects.size() - 1; i >= 0; i--) {
+            eatEffects.get(i).update();
+            if (eatEffects.get(i).finished) eatEffects.remove(i);
+        }
+        for (int i = contactEffects.size() - 1; i >= 0; i--) {
+            contactEffects.get(i).update();
+            if (contactEffects.get(i).finished) contactEffects.remove(i);
+        }
+    }
+
+    // ── Easter Egg ───────────────────────────────────────────────────────
+
+    private void checkEasterEgg() {
+        if (gameOver || easterEggTriggered) return;
+
+        boolean allNpcsDead = true;
+        for (NPC npc : npcList) {
+            if (npc.alive) { allNpcsDead = false; break; }
+        }
+
+        if (allNpcsDead) {
+            easterEggTriggered = true;
+            hud.updateElapsedTime();
+            finalElapsedTime = hud.elapsedTime;
+            updatePlayerScore();
+            easterEggActive = true;
+            hud.resetTime();
+            easterEggMusic.playSound();
+
+            Thread endThread = new Thread(() -> {
+                try { Thread.sleep(20000); } catch (InterruptedException e) { return; }
+                triggerGameOver();
+            });
+            endThread.setDaemon(true);
+            endThread.start();
+        }
+    }
+
+    // ── Game Over ────────────────────────────────────────────────────────
+
+    /** Called by CollisionHandler when an NPC eats the player */
+    public void onPlayerEaten(NPC eater) {
+        hud.score = GameConstants.scoreFromRadius(playerCell.cellRad);
+        hud.updateElapsedTime();
+        finalElapsedTime = hud.elapsedTime;
+        eater.grow(playerCell.cellRad);
+        eatEffects.add(new EatEffect(
+            playerCell.getCenterX(), playerCell.getCenterY(),
+            playerCell.cellRad, playerCell.cellColor));
+        triggerGameOver();
+    }
+
     private void triggerGameOver() {
         if (gameOver) return;
         gameOver = true;
-        music.closeSound();
-        // Stop ambient game sound
-        if (gameAmbientLine != null) {
-            try { gameAmbientLine.stop(); gameAmbientLine.close(); } catch (Exception ignored) {}
-            gameAmbientLine = null;
-        }
+        easterEggMusic.closeSound();
+        ToneGenerator.stopLine(gameAmbientLine);
+        gameAmbientLine = null;
         SwingUtilities.invokeLater(this::showGameOverScreen);
     }
 
-    /** Shows the game over overlay with a restart button */
     private void showGameOverScreen() {
-        StyledButton restartButton = new StyledButton("RESTART", new Color(40, 120, 60));
-        restartButton.setFont(new Font("SansSerif", Font.BOLD, 20));
-        int bw = MainClass.BUTTON_WIDTH + 60;
-        int bh = MainClass.BUTTON_HEIGHT + 14;
+        StyledButton restartButton = new StyledButton("RESTART", GameConstants.BTN_GREEN);
+        restartButton.setFont(new Font(GameConstants.FONT_FAMILY, Font.BOLD, 20));
+        int bw = GameConstants.BUTTON_WIDTH + 60;
+        int bh = GameConstants.BUTTON_HEIGHT + 14;
         restartButton.setBounds((MainClass.SCREEN_WIDTH - bw) / 2,
             MainClass.SCREEN_HEIGHT - 100, bw, bh);
-        restartButton.addActionListener(e -> {
-            mainClass.mainPanel = new MainPanel(mainClass);
-            mainClass.getContentPane().removeAll();
-            mainClass.getContentPane().add(mainClass.mainPanel);
-            mainClass.revalidate();
-            mainClass.repaint();
-            mainClass.mainPanel.requestFocusInWindow();
-        });
+        restartButton.addActionListener(e -> returnToMenu());
         setLayout(null);
         add(restartButton);
         revalidate();
         repaint();
     }
 
+    /** Stops game threads and returns to the main menu */
+    private void returnToMenu() {
+        running = false;
+        ToneGenerator.stopLine(gameAmbientLine);
+        gameAmbientLine = null;
+        if (devLogDialog != null) { devLogDialog.dispose(); devLogDialog = null; }
+        paused = false;
+
+        mainClass.mainPanel = new MainPanel(mainClass);
+        mainClass.getContentPane().removeAll();
+        mainClass.getContentPane().add(mainClass.mainPanel);
+        mainClass.revalidate();
+        mainClass.repaint();
+        mainClass.mainPanel.requestFocusInWindow();
+    }
+
+    // ── Scoreboard ───────────────────────────────────────────────────────
+
     /**
-     * Builds a sorted scoreboard of all players (human + NPCs), sorted by score descending.
-     * Each entry is: [name, score, alive status, isPlayer flag].
+     * Returns a sorted scoreboard: [name, score, alive, isPlayer].
      */
-    private java.util.List<Object[]> getScoreboard() {
-        java.util.List<Object[]> board = new ArrayList<>();
-        // Player score = 10x current radius
-        int playerScore = gameOver ? hud.score : (int) Math.ceil(playerCell.cellRad * 10);
+    public List<Object[]> getScoreboard() {
+        List<Object[]> board = new ArrayList<>();
+        int playerScore = gameOver ? hud.score : GameConstants.scoreFromRadius(playerCell.cellRad);
         hud.score = playerScore;
         if (playerScore > highscore) highscore = playerScore;
         board.add(new Object[]{playerName, playerScore, true, true});
+
         for (NPC npc : npcList) {
-            // NPC score = current radius if alive, frozen at last radius if dead
-            if (npc.alive) npc.score = (int) Math.ceil(npc.cell.cellRad * 10);
+            if (npc.alive) npc.score = GameConstants.scoreFromRadius(npc.cell.cellRad);
             String diffTag = npc.difficulty == NPC.Difficulty.EASY ? "[E]"
                            : npc.difficulty == NPC.Difficulty.MEDIUM ? "[M]" : "[H]";
             board.add(new Object[]{npc.name + " " + diffTag, npc.score, npc.alive, false});
@@ -690,409 +496,15 @@ public class GamePanel extends JPanel implements KeyListener {
         return board;
     }
 
+    // ── Rendering ────────────────────────────────────────────────────────
+
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
-
-        Graphics2D g2d = (Graphics2D) g;
-
-        // Enable anti-aliasing for smooth cell rendering
-        g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        g2d.setRenderingHint(RenderingHints.KEY_RENDERING,    RenderingHints.VALUE_RENDER_QUALITY);
-        g2d.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-
-        // Save original transform for screen-space HUD drawing later
-        AffineTransform savedTransform = g2d.getTransform();
-
-        int camX = (int) cameraX;
-        int camY = (int) cameraY;
-
-        // Apply camera zoom and translation: world objects rendered in zoomed world space
-        g2d.scale(cameraZoom, cameraZoom);
-        g2d.translate(-camX, -camY);
-
-        // Calculate visible world area for background rendering
-        int visibleW = (int) Math.ceil(MainClass.SCREEN_WIDTH / cameraZoom);
-        int visibleH = (int) Math.ceil(MainClass.SCREEN_HEIGHT / cameraZoom);
-
-        // Draw world-space elements (background, cells, player name)
-        background.drawBackground(g2d, camX, camY, visibleW, visibleH);
-
-        // Draw enemy cells with smooth grow-in animation
-        for (Cell c : celllist) {
-            float alpha = c.spawnAlpha;
-            int drawRad = Math.max(1, (int) Math.round(c.cellRad * alpha));
-            if (drawRad < 1) continue;
-            Composite orig = g2d.getComposite();
-            g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha));
-            c.drawCell(g2d, drawRad);
-            g2d.setComposite(orig);
-        }
-
-        // Draw NPC cells with names
-        for (NPC npc : npcList) {
-            if (!npc.alive) continue;
-            int npcDrawRad = (int) Math.round(npc.cell.cellRad);
-            npc.cell.drawCell(g2d, npcDrawRad);
-            // Draw NPC name centered inside its cell
-            int fontSize = Math.max(8, Math.min(npcDrawRad / 2, 24));
-            Font nameFont = new Font("Arial", Font.BOLD, fontSize);
-            g2d.setFont(nameFont);
-            FontMetrics fm = g2d.getFontMetrics();
-            int nameW = fm.stringWidth(npc.name);
-            int nameH = fm.getAscent();
-            int nameX = (int) Math.round(npc.cell.x + npc.cell.cellRad) - nameW / 2;
-            int nameY = (int) Math.round(npc.cell.y + npc.cell.cellRad) + nameH / 2 - 2;
-            g2d.setColor(Color.WHITE);
-            g2d.drawString(npc.name, nameX, nameY);
-        }
-
-        // Draw player cell and name (always visible unless game over from being eaten)
-        if (!gameOver || mus > 0) {
-            int playerDrawRad = (int) Math.round(playerCell.cellRad);
-            playerCell.drawCell(g2d, playerDrawRad);
-
-            // Draw player name centered and font-size fitted inside the player cell
-            int fontSize = Math.max(8, Math.min(playerDrawRad / 2, 24));
-            Font nameFont = new Font("Arial", Font.BOLD, fontSize);
-            g2d.setFont(nameFont);
-            FontMetrics fm = g2d.getFontMetrics();
-            int nameW = fm.stringWidth(playerName);
-            int nameH = fm.getAscent();
-            int nameX = (int) Math.round(playerCell.x + playerCell.cellRad) - nameW / 2;
-            int nameY = (int) Math.round(playerCell.y + playerCell.cellRad) + nameH / 2 - 2;
-            g2d.setColor(Color.WHITE);
-            g2d.drawString(playerName, nameX, nameY);
-        }
-
-        // Draw active division effects (curvy split animations)
-        for (DivisionEffect effect : divisionEffects) {
-            effect.draw(g2d);
-        }
-
-        // Draw eat particle effects
-        for (EatEffect effect : eatEffects) {
-            effect.draw(g2d);
-        }
-
-        // Draw contact ripple effects
-        for (ContactEffect effect : contactEffects) {
-            effect.draw(g2d);
-        }
-
-        // Restore to screen-space for HUD drawing (undo zoom + translate)
-        g2d.setTransform(savedTransform);
-
-        // Draw HUD: score and elapsed time
-        g2d.setColor(Color.BLUE);
-        g2d.setFont(new Font("", Font.PLAIN, 12));
-        g2d.drawString("Score " + hud.score, 10, 20);
-        long displayElapsed = finalElapsedTime >= 0 ? finalElapsedTime : hud.elapsedTime;
-        g2d.drawString("Elapsed Time " + displayElapsed / 1000, 490, 20);
-
-        // Draw scoreboard in top-right corner
-        drawScoreboard(g2d);
-
-        // Easter egg text overlays (while music is playing before game over)
-        if (mus != 0 && !gameOver) {
-            long secs = hud.elapsedTime / 1000;
-            if (secs > 5 && secs < 8) {
-                g2d.setColor(Color.WHITE);
-                g2d.setFont(new Font("", Font.BOLD, 200));
-                g2d.drawString("TOO EASY???", 0, (MainClass.SCREEN_HEIGHT) / 2);
-            } else if (secs >= 8 && secs < 13) {
-                g2d.setColor(Color.WHITE);
-                g2d.setFont(new Font("", Font.BOLD, 130));
-                g2d.drawString("YOU KNOW WHAT :)", 0, (MainClass.SCREEN_HEIGHT) / 2);
-            } else if (secs >= 14 && secs < 17) {
-                g2d.setColor(Color.WHITE);
-                g2d.setFont(new Font("", Font.BOLD, 80));
-                g2d.drawString("FIRE IT LOUD", 0, (MainClass.SCREEN_HEIGHT) / 2);
-                g2d.drawString("ANOTHER ROUND OF SHOTS", 0, (MainClass.SCREEN_HEIGHT + 160) / 2);
-            } else if (secs > 17) {
-                g2d.setColor(Color.WHITE);
-                g2d.setFont(new Font("", Font.BOLD, 150));
-                g2d.drawString("TURN DOWN FOR", 0, (MainClass.SCREEN_HEIGHT) / 2);
-                g2d.drawString("WHAT", 0, (MainClass.SCREEN_HEIGHT + 300) / 2);
-                g2d.setFont(new Font("", Font.BOLD, 50));
-                g2d.drawString("HA HA HA!", random.nextInt(MainClass.SCREEN_WIDTH), random.nextInt(MainClass.SCREEN_HEIGHT));
-            }
-        }
-
-        // Draw paused overlay when dev log is open
-        if (paused && !gameOver) {
-            g2d.setColor(new Color(0, 0, 0, 100));
-            g2d.fillRect(0, 0, MainClass.SCREEN_WIDTH, MainClass.SCREEN_HEIGHT);
-            g2d.setColor(Color.YELLOW);
-            g2d.setFont(new Font("Arial", Font.BOLD, 28));
-            String pauseMsg = "[ PAUSED \u2014 Dev Log Open ]";
-            FontMetrics pfm = g2d.getFontMetrics();
-            int px = (MainClass.SCREEN_WIDTH - pfm.stringWidth(pauseMsg)) / 2;
-            g2d.drawString(pauseMsg, px, MainClass.SCREEN_HEIGHT / 2);
-        }
-
-        // Draw game over overlay
-        if (gameOver) {
-            drawGameOverOverlay(g2d);
-        }
+        renderer.render((Graphics2D) g);
     }
 
-    /** Draws the scoreboard in the top-right corner of the screen */
-    private void drawScoreboard(Graphics2D g2d) {
-        java.util.List<Object[]> board = getScoreboard();
-        int sbWidth = 200;
-        int lineHeight = 20;
-        int sbX = MainClass.SCREEN_WIDTH - sbWidth - 10;
-        int sbY = 10;
-
-        // Background
-        g2d.setColor(new Color(0, 0, 0, 140));
-        g2d.fillRoundRect(sbX - 5, sbY - 5, sbWidth + 10,
-            lineHeight * (board.size() + 1) + 15, 10, 10);
-
-        // Title
-        g2d.setFont(new Font("Arial", Font.BOLD, 14));
-        g2d.setColor(Color.YELLOW);
-        g2d.drawString("SCOREBOARD", sbX + 40, sbY + 14);
-
-        g2d.setFont(new Font("Arial", Font.PLAIN, 12));
-        int y = sbY + 14 + lineHeight;
-        int rank = 1;
-        for (Object[] entry : board) {
-            String name = (String) entry[0];
-            int score = (int) entry[1];
-            boolean alive = (boolean) entry[2];
-            boolean isPlayer = (boolean) entry[3];
-
-            if (isPlayer) {
-                // Highlight player's score
-                g2d.setColor(new Color(255, 255, 100));
-                g2d.setFont(new Font("Arial", Font.BOLD, 12));
-            } else {
-                g2d.setColor(alive ? Color.WHITE : new Color(150, 150, 150));
-                g2d.setFont(new Font("Arial", Font.PLAIN, 12));
-            }
-            String status = alive ? "" : " [dead]";
-            String line = rank + ". " + name + " - " + score + status;
-            g2d.drawString(line, sbX, y);
-            y += lineHeight;
-            rank++;
-        }
-    }
-
-    /** Draws the game over overlay with final stats */
-    private void drawGameOverOverlay(Graphics2D g2d) {
-        // Dark overlay
-        g2d.setColor(new Color(0, 0, 0, 180));
-        g2d.fillRect(0, 0, MainClass.SCREEN_WIDTH, MainClass.SCREEN_HEIGHT);
-
-        // Game Over title
-        g2d.setColor(Color.RED);
-        g2d.setFont(new Font("Arial", Font.BOLD, 64));
-        String title = "GAME OVER";
-        FontMetrics tfm = g2d.getFontMetrics();
-        int tx = (MainClass.SCREEN_WIDTH - tfm.stringWidth(title)) / 2;
-        g2d.drawString(title, tx, 120);
-
-        // Final stats
-        java.util.List<Object[]> board = getScoreboard();
-        g2d.setFont(new Font("Arial", Font.BOLD, 20));
-        g2d.setColor(Color.WHITE);
-        String subTitle = "Final Standings";
-        FontMetrics sfm = g2d.getFontMetrics();
-        g2d.drawString(subTitle, (MainClass.SCREEN_WIDTH - sfm.stringWidth(subTitle)) / 2, 170);
-
-        int y = 210;
-        int rank = 1;
-        for (Object[] entry : board) {
-            String name = (String) entry[0];
-            int score = (int) entry[1];
-            boolean isPlayer = (boolean) entry[3];
-
-            if (isPlayer) {
-                g2d.setColor(new Color(255, 255, 100));
-                g2d.setFont(new Font("Arial", Font.BOLD, 18));
-            } else {
-                g2d.setColor(Color.WHITE);
-                g2d.setFont(new Font("Arial", Font.PLAIN, 18));
-            }
-            String line = "#" + rank + "  " + name + "  \u2014  Score: " + score;
-            FontMetrics lfm = g2d.getFontMetrics();
-            g2d.drawString(line, (MainClass.SCREEN_WIDTH - lfm.stringWidth(line)) / 2, y);
-            y += 30;
-            rank++;
-        }
-
-        // Player's final time (use saved time to avoid easter egg timer reset)
-        long displayTime = finalElapsedTime >= 0 ? finalElapsedTime : hud.elapsedTime;
-        g2d.setColor(new Color(180, 220, 255));
-        g2d.setFont(new Font("Arial", Font.PLAIN, 16));
-        String timeStr = "Time played: " + displayTime / 1000 + " seconds";
-        FontMetrics fm2 = g2d.getFontMetrics();
-        g2d.drawString(timeStr, (MainClass.SCREEN_WIDTH - fm2.stringWidth(timeStr)) / 2, y + 20);
-    }
-
-    /**
-     * Toggles the developer log dialog.
-     * If it is already open, closes it (unpausing the game).
-     * If it is closed, opens it (pausing the game).
-     */
-    // ========== Division mechanic helpers ==========
-
-    private static long contactKey(Cell attacker, Cell target) {
-        return ((long) System.identityHashCode(attacker) << 32)
-             | (System.identityHashCode(target) & 0xFFFFFFFFL);
-    }
-
-    private void divideFoodCell(int foodIndex, Cell attacker) {
-        Cell food = celllist.get(foodIndex);
-        double origRad = food.cellRad;
-        double newRad = origRad / Math.sqrt(2);
-
-        double foodCX = food.x + food.cellRad;
-        double foodCY = food.y + food.cellRad;
-        double attackCX = attacker.x + attacker.cellRad;
-        double attackCY = attacker.y + attacker.cellRad;
-
-        double contactAngle = Math.atan2(foodCY - attackCY, foodCX - attackCX);
-        double divAngle = contactAngle + Math.PI / 2;
-        double moveDist = origRad * 3; // 3x radius for escape room after division
-
-        double posAX = foodCX + Math.cos(divAngle) * moveDist;
-        double posAY = foodCY + Math.sin(divAngle) * moveDist;
-        double posBX = foodCX - Math.cos(divAngle) * moveDist;
-        double posBY = foodCY - Math.sin(divAngle) * moveDist;
-
-        divisionEffects.add(new DivisionEffect(foodCX, foodCY, posAX, posAY, posBX, posBY, newRad, food.cellColor, divAngle));
-        celllist.remove(foodIndex);
-
-        Cell halfA = new Cell((int) posAX, (int) posAY, newRad);
-        halfA.cellColor = food.cellColor;
-        halfA.spawnAlpha = 1f;
-        Cell halfB = new Cell((int) posBX, (int) posBY, newRad);
-        halfB.cellColor = food.cellColor;
-        halfB.spawnAlpha = 1f;
-        celllist.add(halfA);
-        celllist.add(halfB);
-
-        Sound.playDivisionSound();
-    }
-
-    private void divideEntityCell(Cell targetCell, Cell attacker, NPC targetNpc) {
-        double origRad = targetCell.cellRad;
-        double newRad = origRad / Math.sqrt(2);
-
-        double cellCX = targetCell.x + targetCell.cellRad;
-        double cellCY = targetCell.y + targetCell.cellRad;
-        double attackCX = attacker.x + attacker.cellRad;
-        double attackCY = attacker.y + attacker.cellRad;
-
-        double contactAngle = Math.atan2(cellCY - attackCY, cellCX - attackCX);
-        double divAngle = contactAngle + Math.PI / 2;
-        double moveDist = origRad * 3; // 3x radius for escape room after division
-
-        double posAX = cellCX + Math.cos(divAngle) * moveDist;
-        double posAY = cellCY + Math.sin(divAngle) * moveDist;
-        double posBX = cellCX - Math.cos(divAngle) * moveDist;
-        double posBY = cellCY - Math.sin(divAngle) * moveDist;
-
-        boolean aIsSafer = isPositionASafer(posAX, posAY, posBX, posBY, newRad, attacker);
-        double safeX = aIsSafer ? posAX : posBX;
-        double safeY = aIsSafer ? posAY : posBY;
-        double dangerX = aIsSafer ? posBX : posAX;
-        double dangerY = aIsSafer ? posBY : posAY;
-
-        divisionEffects.add(new DivisionEffect(cellCX, cellCY, posAX, posAY, posBX, posBY, newRad, targetCell.cellColor, divAngle));
-
-        targetCell.cellRad = newRad;
-        targetCell.x = safeX - newRad;
-        targetCell.y = safeY - newRad;
-        if (targetNpc != null) {
-            targetNpc.updateSpeed();
-            targetNpc.score = (int) Math.ceil(newRad * 10); // score = 10x radius after division
-        }
-
-        Cell foodHalf = new Cell((int) dangerX, (int) dangerY, newRad);
-        foodHalf.cellColor = targetCell.cellColor;
-        foodHalf.spawnAlpha = 1f;
-        celllist.add(foodHalf);
-
-        Sound.playDivisionSound();
-    }
-
-    private void dividePlayerCell(Cell attacker) {
-        double origRad = playerCell.cellRad;
-        double newRad = origRad / Math.sqrt(2);
-
-        double cellCX = playerCell.x + playerCell.cellRad;
-        double cellCY = playerCell.y + playerCell.cellRad;
-        double attackCX = attacker.x + attacker.cellRad;
-        double attackCY = attacker.y + attacker.cellRad;
-
-        double contactAngle = Math.atan2(cellCY - attackCY, cellCX - attackCX);
-        double divAngle = contactAngle + Math.PI / 2;
-        double moveDist = origRad * 3; // 3x radius for escape room after division
-
-        double posAX = cellCX + Math.cos(divAngle) * moveDist;
-        double posAY = cellCY + Math.sin(divAngle) * moveDist;
-        double posBX = cellCX - Math.cos(divAngle) * moveDist;
-        double posBY = cellCY - Math.sin(divAngle) * moveDist;
-
-        boolean aIsSafer = isPositionASafer(posAX, posAY, posBX, posBY, newRad, attacker);
-        double safeX = aIsSafer ? posAX : posBX;
-        double safeY = aIsSafer ? posAY : posBY;
-        double dangerX = aIsSafer ? posBX : posAX;
-        double dangerY = aIsSafer ? posBY : posAY;
-
-        divisionEffects.add(new DivisionEffect(cellCX, cellCY, posAX, posAY, posBX, posBY, newRad, playerCell.cellColor, divAngle));
-
-        playerCell.cellRad = newRad;
-        playerCell.x = safeX - newRad;
-        playerCell.y = safeY - newRad;
-        // Score = 10x radius after division
-        hud.score = (int) Math.ceil(newRad * 10);
-
-        Cell foodHalf = new Cell((int) dangerX, (int) dangerY, newRad);
-        foodHalf.cellColor = playerCell.cellColor;
-        foodHalf.spawnAlpha = 1f;
-        celllist.add(foodHalf);
-
-        Sound.playDivisionSound();
-    }
-
-    private boolean isPositionASafer(double posAX, double posAY, double posBX, double posBY,
-                                      double newRadius, Cell excludeCell) {
-        double dangerA = 0;
-        double dangerB = 0;
-        double newArea = newRadius * newRadius;
-
-        if (excludeCell != playerCell && !gameOver) {
-            double pArea = playerCell.cellRad * playerCell.cellRad;
-            if (pArea > newArea) {
-                double pCX = playerCell.x + playerCell.cellRad;
-                double pCY = playerCell.y + playerCell.cellRad;
-                dangerA += pArea / Math.max(1, distSq(posAX, posAY, pCX, pCY));
-                dangerB += pArea / Math.max(1, distSq(posBX, posBY, pCX, pCY));
-            }
-        }
-
-        for (NPC npc : npcList) {
-            if (!npc.alive || npc.cell == excludeCell) continue;
-            double nArea = npc.cell.cellRad * npc.cell.cellRad;
-            if (nArea > newArea) {
-                double nCX = npc.cell.x + npc.cell.cellRad;
-                double nCY = npc.cell.y + npc.cell.cellRad;
-                dangerA += nArea / Math.max(1, distSq(posAX, posAY, nCX, nCY));
-                dangerB += nArea / Math.max(1, distSq(posBX, posBY, nCX, nCY));
-            }
-        }
-
-        return dangerA <= dangerB;
-    }
-
-    private static double distSq(double x1, double y1, double x2, double y2) {
-        return (x2 - x1) * (x2 - x1) + (y2 - y1) * (y2 - y1);
-    }
+    // ── Developer Log ────────────────────────────────────────────────────
 
     private void toggleDevLog() {
         if (devLogDialog != null && devLogDialog.isVisible()) {
@@ -1106,42 +518,20 @@ public class GamePanel extends JPanel implements KeyListener {
         }
     }
 
-    // Below part is for using the keyboard as controller
-    // W A S D and Arrow keys
+    // ── Input Handling ───────────────────────────────────────────────────
+
     @Override
-    public void keyTyped(KeyEvent e) {
-    }
+    public void keyTyped(KeyEvent e) {}
 
     @Override
     public void keyPressed(KeyEvent e) {
         if (gameOver) return;
         switch (e.getKeyCode()) {
-            case KeyEvent.VK_RIGHT:
-                right = true;
-                break;
-            case KeyEvent.VK_D:
-                right = true;
-                break;
-            case KeyEvent.VK_LEFT:
-                left = true;
-                break;
-            case KeyEvent.VK_A:
-                left = true;
-                break;
-            case KeyEvent.VK_UP:
-                up = true;
-                break;
-            case KeyEvent.VK_W:
-                up = true;
-                break;
-            case KeyEvent.VK_DOWN:
-                down = true;
-                break;
-            case KeyEvent.VK_S:
-                down = true;
-                break;
+            case KeyEvent.VK_RIGHT: case KeyEvent.VK_D: right = true; break;
+            case KeyEvent.VK_LEFT:  case KeyEvent.VK_A: left  = true; break;
+            case KeyEvent.VK_UP:    case KeyEvent.VK_W: up    = true; break;
+            case KeyEvent.VK_DOWN:  case KeyEvent.VK_S: down  = true; break;
             case KeyEvent.VK_I:
-                // Ctrl+I (Windows/Linux) or Cmd+I (macOS)
                 if ((e.getModifiersEx() & KeyEvent.CTRL_DOWN_MASK) != 0 ||
                     (e.getModifiersEx() & KeyEvent.META_DOWN_MASK) != 0) {
                     toggleDevLog();
@@ -1149,54 +539,32 @@ public class GamePanel extends JPanel implements KeyListener {
                 break;
             case KeyEvent.VK_ESCAPE:
                 boolean confirmed = StyledDialog.showConfirmDialog(mainClass,
-                        "Are you sure you want to return back to Menu?", "Return to Menu");
+                    "Are you sure you want to return back to Menu?", "Return to Menu");
                 if (confirmed) {
-                    if (devLogDialog != null) { devLogDialog.dispose(); devLogDialog = null; }
-                    paused = false;
-                    if (gameAmbientLine != null) {
-                        try { gameAmbientLine.stop(); gameAmbientLine.close(); } catch (Exception ignored) {}
-                        gameAmbientLine = null;
-                    }
-                    mainClass.mainPanel = new MainPanel(mainClass);
-                    mainClass.getContentPane().removeAll();
-                    mainClass.getContentPane().add(mainClass.mainPanel);
-                    mainClass.revalidate();
-                    mainClass.repaint();
-                    mainClass.mainPanel.requestFocusInWindow();
-                    break;
-                } else {
-                    break;
+                    returnToMenu();
                 }
+                break;
         }
     }
 
     @Override
     public void keyReleased(KeyEvent e) {
         switch (e.getKeyCode()) {
-            case KeyEvent.VK_RIGHT:
-                right = false;
-                break;
-            case KeyEvent.VK_D:
-                right = false;
-                break;
-            case KeyEvent.VK_LEFT:
-                left = false;
-                break;
-            case KeyEvent.VK_A:
-                left = false;
-                break;
-            case KeyEvent.VK_UP:
-                up = false;
-                break;
-            case KeyEvent.VK_W:
-                up = false;
-                break;
-            case KeyEvent.VK_DOWN:
-                down = false;
-                break;
-            case KeyEvent.VK_S:
-                down = false;
-                break;
+            case KeyEvent.VK_RIGHT: case KeyEvent.VK_D: right = false; break;
+            case KeyEvent.VK_LEFT:  case KeyEvent.VK_A: left  = false; break;
+            case KeyEvent.VK_UP:    case KeyEvent.VK_W: up    = false; break;
+            case KeyEvent.VK_DOWN:  case KeyEvent.VK_S: down  = false; break;
         }
     }
+
+    // ── Legacy Compatibility ─────────────────────────────────────────────
+    // These provide backward compatibility for code that references the old field names
+
+    /** @deprecated Use {@link GameConstants#CELL_COLORS} instead */
+    public static Color[] colors = GameConstants.CELL_COLORS;
+
+    /** @deprecated Use {@link #getFoodCells()} instead */
+    public CopyOnWriteArrayList<Cell> getCelllist() { return foodCells; }
+    // DevLogDialog accesses celllist directly — provide compatibility
+    public CopyOnWriteArrayList<Cell> celllist = foodCells;
 }

@@ -1,25 +1,21 @@
-import javax.swing.*;
-
-
 /**
- * HUD Class : For this game class only calculates the time and holds the value of score
- * Takes the current time of the system when the class is called
+ * HUD : Heads-up display data — tracks score and elapsed time.
+ * Used by GamePanel and GameRenderer to display game statistics.
  * @author Kamil Yunus Özkaya
  */
-public class HUD extends JPanel {
+public class HUD {
+
     public long startTime = System.currentTimeMillis();
-
-    public long endTime;
-
     public long elapsedTime;
-
     public int score = 0;
 
-    public void getElapsedTime() {
-        endTime = System.currentTimeMillis();
-        elapsedTime = endTime - startTime;
+    /** Updates the elapsed time from the system clock */
+    public void updateElapsedTime() {
+        elapsedTime = System.currentTimeMillis() - startTime;
     }
-    public void resetTime(){
+
+    /** Resets the timer to the current time (used by easter egg) */
+    public void resetTime() {
         startTime = System.currentTimeMillis();
     }
 }

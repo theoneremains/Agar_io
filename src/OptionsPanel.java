@@ -3,75 +3,48 @@ import javax.swing.*;
 import java.awt.*;
 
 /**
- * OptionsPanel class : Options Panel of the game with modern styled UI
- * SOUND button toggles all game sounds on/off
- * COLOR button cycles through available player cell colors
- * FULLSCREEN button toggles between fullscreen and windowed mode
- * World size and cell density settings have moved to WorldSettingsPanel
+ * OptionsPanel class : Options Panel of the game with modern styled UI.
+ * SOUND button toggles all game sounds on/off.
+ * COLOR button cycles through available player cell colors.
+ * FULLSCREEN button toggles between fullscreen and windowed mode.
  * @author Kamil Yunus Ozkaya
  */
 public class OptionsPanel extends JPanel {
-    public StyledButton soundButton = new StyledButton(
+
+    private final StyledButton soundButton = new StyledButton(
         Sound.soundEnabled ? "SOUND: ON" : "SOUND: OFF",
-        Sound.soundEnabled ? new Color(40, 130, 70) : new Color(120, 50, 50));
+        Sound.soundEnabled ? GameConstants.BTN_ON : GameConstants.BTN_OFF);
 
-    public StyledButton backButton = new StyledButton("BACK", new Color(100, 60, 60));
+    private final StyledButton colorButton = new StyledButton("COLOR", new Color(60, 60, 130));
 
-    public StyledButton colorButton = new StyledButton("COLOR", new Color(60, 60, 130));
-
-    public StyledButton fullscreenButton = new StyledButton(
+    private final StyledButton fullscreenButton = new StyledButton(
         MainClass.fullscreen ? "FULLSCREEN: ON" : "FULLSCREEN: OFF",
-        MainClass.fullscreen ? new Color(40, 130, 70) : new Color(120, 50, 50));
+        MainClass.fullscreen ? GameConstants.BTN_ON : GameConstants.BTN_OFF);
 
-    // Small panel showing the currently selected player cell color
-    private JPanel colorPreview = new JPanel();
+    private final StyledButton backButton = new StyledButton("BACK", new Color(100, 60, 60));
 
+    private final JPanel colorPreview = new JPanel();
+    private final MenuBackground menuBg;
 
-    /** Phase for animated background gradient */
-    private float bgPhase = 0f;
-    private Timer bgTimer;
-
-
-    public OptionsPanel(MainClass mainClass)
-    {
+    public OptionsPanel(MainClass mainClass) {
         setSize(MainClass.SCREEN_WIDTH, MainClass.SCREEN_HEIGHT);
         setPreferredSize(new Dimension(MainClass.SCREEN_WIDTH, MainClass.SCREEN_HEIGHT));
-
         setFocusable(true);
-
         setLayout(null);
 
         int centerX = MainClass.SCREEN_WIDTH / 2;
         int centerY = MainClass.SCREEN_HEIGHT / 2;
-        int btnW = MainClass.BUTTON_WIDTH + 40;
-        int btnH = MainClass.BUTTON_HEIGHT + 6;
+        int btnW = GameConstants.BUTTON_WIDTH + 40;
+        int btnH = GameConstants.BUTTON_HEIGHT + 6;
 
-        colorButton.setBounds(
-                centerX - btnW / 2,
-                centerY - 4 * MainClass.BUTTON_HEIGHT - 10,
-                btnW, btnH);
+        colorButton.setBounds(centerX - btnW / 2, centerY - 4 * GameConstants.BUTTON_HEIGHT - 10, btnW, btnH);
+        soundButton.setBounds(centerX - btnW / 2, centerY - 2 * GameConstants.BUTTON_HEIGHT - GameConstants.BUTTON_HEIGHT / 2 - 5, btnW, btnH);
+        fullscreenButton.setBounds(centerX - btnW / 2, centerY - GameConstants.BUTTON_HEIGHT + 5, btnW, btnH);
+        backButton.setBounds(centerX - btnW / 2, centerY + GameConstants.BUTTON_HEIGHT + 15, btnW, btnH);
 
-        soundButton.setBounds(
-                centerX - btnW / 2,
-                centerY - 2 * MainClass.BUTTON_HEIGHT - MainClass.BUTTON_HEIGHT / 2 - 5,
-                btnW, btnH);
-
-        fullscreenButton.setBounds(
-                centerX - btnW / 2,
-                centerY - MainClass.BUTTON_HEIGHT + 5,
-                btnW, btnH);
-
-        backButton.setBounds(
-                centerX - btnW / 2,
-                centerY + MainClass.BUTTON_HEIGHT + 15,
-                btnW, btnH);
-
-        // Color preview square placed to the right of the COLOR button
+        // Color preview square
         colorPreview.setBackground(GamePanel.playerColor);
-        colorPreview.setBounds(
-                centerX + btnW / 2 + 10,
-                centerY - 4 * MainClass.BUTTON_HEIGHT - 10,
-                btnH, btnH);
+        colorPreview.setBounds(centerX + btnW / 2 + 10, centerY - 4 * GameConstants.BUTTON_HEIGHT - 10, btnH, btnH);
         colorPreview.setBorder(BorderFactory.createLineBorder(new Color(100, 120, 160), 2));
 
         add(backButton);
@@ -80,16 +53,13 @@ public class OptionsPanel extends JPanel {
         add(fullscreenButton);
         add(colorPreview);
 
-        // Start background animation
-        bgTimer = new Timer(30, e -> {
-            bgPhase = (bgPhase + 0.003f) % 1f;
-            repaint();
-        });
-        bgTimer.start();
+        // Start animated background
+        menuBg = new MenuBackground(6, this);
+        menuBg.start();
 
-        backButton.addActionListener(arg0 -> {
+        backButton.addActionListener(e -> {
             Sound.playClickSound();
-            bgTimer.stop();
+            menuBg.stop();
             mainClass.mainPanel = new MainPanel(mainClass);
             mainClass.getContentPane().removeAll();
             mainClass.getContentPane().add(mainClass.mainPanel);
@@ -98,30 +68,27 @@ public class OptionsPanel extends JPanel {
             mainClass.mainPanel.requestFocusInWindow();
         });
 
-        // SOUND button: toggle all game sounds on/off
-        soundButton.addActionListener(arg0 -> {
+        soundButton.addActionListener(e -> {
             Sound.playClickSound();
             Sound.soundEnabled = !Sound.soundEnabled;
             soundButton.setText(Sound.soundEnabled ? "SOUND: ON" : "SOUND: OFF");
-            soundButton.setBaseColor(Sound.soundEnabled ? new Color(40, 130, 70) : new Color(120, 50, 50));
+            soundButton.setBaseColor(Sound.soundEnabled ? GameConstants.BTN_ON : GameConstants.BTN_OFF);
         });
 
-        // COLOR button: cycle through the available cell color palette
-        colorButton.addActionListener(arg0 -> {
+        colorButton.addActionListener(e -> {
             Sound.playClickSound();
-            GamePanel.playerColorIndex = (GamePanel.playerColorIndex + 1) % GamePanel.colors.length;
-            GamePanel.playerColor = GamePanel.colors[GamePanel.playerColorIndex];
+            GamePanel.playerColorIndex = (GamePanel.playerColorIndex + 1) % GameConstants.CELL_COLORS.length;
+            GamePanel.playerColor = GameConstants.CELL_COLORS[GamePanel.playerColorIndex];
             colorPreview.setBackground(GamePanel.playerColor);
         });
 
-        // FULLSCREEN button: toggle between fullscreen and windowed mode
-        fullscreenButton.addActionListener(arg0 -> {
+        fullscreenButton.addActionListener(e -> {
             Sound.playClickSound();
             mainClass.toggleFullscreen();
             fullscreenButton.setText(MainClass.fullscreen ? "FULLSCREEN: ON" : "FULLSCREEN: OFF");
-            fullscreenButton.setBaseColor(MainClass.fullscreen ? new Color(40, 130, 70) : new Color(120, 50, 50));
+            fullscreenButton.setBaseColor(MainClass.fullscreen ? GameConstants.BTN_ON : GameConstants.BTN_OFF);
             // Recreate options panel to adjust layout to new screen size
-            bgTimer.stop();
+            menuBg.stop();
             mainClass.optionsPanel = new OptionsPanel(mainClass);
             mainClass.getContentPane().removeAll();
             mainClass.getContentPane().add(mainClass.optionsPanel);
@@ -129,61 +96,22 @@ public class OptionsPanel extends JPanel {
             mainClass.repaint();
             mainClass.optionsPanel.requestFocusInWindow();
         });
-
-
     }
 
-
     @Override
-    protected void paintComponent(Graphics g)
-    {
+    protected void paintComponent(Graphics g) {
         super.paintComponent(g);
-        Graphics2D g2d = (Graphics2D) g;
-        g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        g2d.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-
-        int w = MainClass.SCREEN_WIDTH;
-        int h = MainClass.SCREEN_HEIGHT;
-
-        // Animated gradient background
-        Color c1 = Color.getHSBColor(bgPhase, 0.35f, 0.18f);
-        Color c2 = Color.getHSBColor((bgPhase + 0.25f) % 1f, 0.30f, 0.12f);
-        g2d.setPaint(new GradientPaint(0, 0, c1, w, h, c2));
-        g2d.fillRect(0, 0, w, h);
-
-        // Subtle floating circles
-        Composite orig = g2d.getComposite();
-        for (int i = 0; i < 6; i++) {
-            float hue = (bgPhase + i * 0.15f) % 1f;
-            Color circleColor = Color.getHSBColor(hue, 0.3f, 0.22f);
-            g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.05f));
-            g2d.setColor(circleColor);
-            int cx = (int) (w * 0.2 + (w * 0.6) * Math.sin(bgPhase * Math.PI + i * 1.0));
-            int cy = (int) (h * 0.2 + (h * 0.6) * Math.cos(bgPhase * Math.PI * 0.6 + i * 1.3));
-            int sz = 80 + i * 40;
-            g2d.fillOval(cx - sz, cy - sz, sz * 2, sz * 2);
-        }
-        g2d.setComposite(orig);
+        menuBg.draw((Graphics2D) g, MainClass.SCREEN_WIDTH, MainClass.SCREEN_HEIGHT);
     }
 
     @Override
-    public void paint(Graphics g)
-    {
+    public void paint(Graphics g) {
         super.paint(g);
         Graphics2D g2d = (Graphics2D) g;
         g2d.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
 
-        // High score
-        g2d.setColor(new Color(180, 200, 255, 180));
-        g2d.setFont(new Font("SansSerif", Font.PLAIN, 14));
-        g2d.drawString("High Score: " + GamePanel.highscore, 15, 25);
-
-        // Title
-        String title = "Options";
-        g2d.setFont(new Font("SansSerif", Font.BOLD, 48));
-        FontMetrics fm = g2d.getFontMetrics();
-        int tx = (MainClass.SCREEN_WIDTH - fm.stringWidth(title)) / 2;
-        g2d.setColor(new Color(220, 240, 255));
-        g2d.drawString(title, tx, MainClass.SCREEN_HEIGHT / 2 - 6 * MainClass.BUTTON_HEIGHT);
+        MenuBackground.drawHighScore(g2d, GamePanel.highscore);
+        MenuBackground.drawTitle(g2d, "Options", 48,
+            MainClass.SCREEN_HEIGHT / 2 - 6 * GameConstants.BUTTON_HEIGHT, MainClass.SCREEN_WIDTH, false);
     }
 }

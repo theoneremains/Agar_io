@@ -6,23 +6,18 @@ import java.util.List;
 /**
  * WorldSettingsPanel : Pre-game settings screen where the player configures
  * their name, NPC count, world dimensions, cell density, and manages save files.
- * Replaces the old separate input dialogs for name and NPC count.
  * @author Kamil Yunus Ozkaya
  */
 public class WorldSettingsPanel extends JPanel {
 
-    /** Phase for animated background gradient */
-    private float bgPhase = 0f;
-    private Timer bgTimer;
+    private final MenuBackground menuBg;
+    private final GameSettings settings;
 
     private JTextField tfPlayerName;
     private JTextField tfNpcCount;
     private JTextField tfWorldWidth;
     private JTextField tfWorldHeight;
     private JTextField tfCellDensity;
-
-    /** The settings object backing this panel */
-    private GameSettings settings;
 
     public WorldSettingsPanel(MainClass mainClass) {
         settings = new GameSettings();
@@ -41,75 +36,37 @@ public class WorldSettingsPanel extends JPanel {
         int rowH = 38;
         int leftX = centerX - 160;
         int rightX = centerX + 10;
-
-        // Starting Y position for the form (offset upward to fit everything)
         int startY = centerY - 160;
 
-        // --- Player Name ---
-        JLabel nameLabel = createLabel("Player Name:");
-        nameLabel.setBounds(leftX, startY, labelW, fieldH);
-        tfPlayerName = createField(settings.playerName);
-        tfPlayerName.setBounds(rightX, startY, fieldW, fieldH);
-        add(nameLabel);
-        add(tfPlayerName);
+        // --- Form fields ---
+        addFieldRow("Player Name:", settings.playerName, leftX, rightX, startY, labelW, fieldW, fieldH, true);
+        addFieldRow("NPC Count (min 3):", String.valueOf(settings.npcCount), leftX, rightX, startY + rowH, labelW, fieldW, fieldH, false);
+        addFieldRow("World Width:", String.valueOf(settings.worldWidth), leftX, rightX, startY + rowH * 2, labelW, fieldW, fieldH, false);
+        addFieldRow("World Height:", String.valueOf(settings.worldHeight), leftX, rightX, startY + rowH * 3, labelW, fieldW, fieldH, false);
+        addFieldRow("Cell Density:", String.format("%.2f", settings.cellDensity), leftX, rightX, startY + rowH * 4, labelW, fieldW, fieldH, false);
 
-        // --- NPC Count ---
-        int y = startY + rowH;
-        JLabel npcLabel = createLabel("NPC Count (min 3):");
-        npcLabel.setBounds(leftX, y, labelW, fieldH);
-        tfNpcCount = createField(String.valueOf(settings.npcCount));
-        tfNpcCount.setBounds(rightX, y, fieldW, fieldH);
-        add(npcLabel);
-        add(tfNpcCount);
-
-        // --- World Width ---
-        y += rowH;
-        JLabel wwLabel = createLabel("World Width:");
-        wwLabel.setBounds(leftX, y, labelW, fieldH);
-        tfWorldWidth = createField(String.valueOf(settings.worldWidth));
-        tfWorldWidth.setBounds(rightX, y, fieldW, fieldH);
-        add(wwLabel);
-        add(tfWorldWidth);
-
-        // --- World Height ---
-        y += rowH;
-        JLabel whLabel = createLabel("World Height:");
-        whLabel.setBounds(leftX, y, labelW, fieldH);
-        tfWorldHeight = createField(String.valueOf(settings.worldHeight));
-        tfWorldHeight.setBounds(rightX, y, fieldW, fieldH);
-        add(whLabel);
-        add(tfWorldHeight);
-
-        // --- Cell Density ---
-        y += rowH;
-        JLabel densLabel = createLabel("Cell Density:");
-        densLabel.setBounds(leftX, y, labelW, fieldH);
-        tfCellDensity = createField(String.format("%.2f", settings.cellDensity));
-        tfCellDensity.setBounds(rightX, y, fieldW, fieldH);
-        add(densLabel);
-        add(tfCellDensity);
-
+        // Density hint
         JLabel densHint = new JLabel("cells/M px");
         densHint.setForeground(new Color(140, 160, 190));
-        densHint.setFont(new Font("SansSerif", Font.PLAIN, 11));
-        densHint.setBounds(rightX + fieldW + 6, y, 80, fieldH);
+        densHint.setFont(new Font(GameConstants.FONT_FAMILY, Font.PLAIN, 11));
+        densHint.setBounds(rightX + fieldW + 6, startY + rowH * 4, 80, fieldH);
         add(densHint);
 
         // --- Buttons row ---
-        y += rowH + 16;
+        int y = startY + rowH * 5 + 16;
         int btnW = 130;
-        int btnH = MainClass.BUTTON_HEIGHT;
+        int btnH = GameConstants.BUTTON_HEIGHT;
         int btnGap = 10;
         int totalBtnWidth = btnW * 2 + btnGap;
         int btnStartX = centerX - totalBtnWidth / 2;
 
-        StyledButton startBtn = new StyledButton("START GAME", new Color(40, 140, 70));
-        startBtn.setFont(new Font("SansSerif", Font.BOLD, 14));
+        StyledButton startBtn = new StyledButton("START GAME", GameConstants.BTN_GREEN);
+        startBtn.setFont(new Font(GameConstants.FONT_FAMILY, Font.BOLD, 14));
         startBtn.setBounds(btnStartX, y, btnW, btnH);
         add(startBtn);
 
         StyledButton backBtn = new StyledButton("BACK", new Color(100, 60, 60));
-        backBtn.setFont(new Font("SansSerif", Font.BOLD, 14));
+        backBtn.setFont(new Font(GameConstants.FONT_FAMILY, Font.BOLD, 14));
         backBtn.setBounds(btnStartX + btnW + btnGap, y, btnW, btnH);
         add(backBtn);
 
@@ -120,40 +77,32 @@ public class WorldSettingsPanel extends JPanel {
         int totalSmallWidth = smallBtnW * 4 + smallBtnGap * 3;
         int smallStartX = centerX - totalSmallWidth / 2;
 
-        StyledButton saveBtn = new StyledButton("SAVE", new Color(50, 90, 130));
-        saveBtn.setFont(new Font("SansSerif", Font.BOLD, 12));
+        StyledButton saveBtn = createSmallButton("SAVE", new Color(50, 90, 130));
         saveBtn.setBounds(smallStartX, y, smallBtnW, btnH - 6);
         add(saveBtn);
 
-        StyledButton loadBtn = new StyledButton("LOAD", new Color(50, 90, 130));
-        loadBtn.setFont(new Font("SansSerif", Font.BOLD, 12));
+        StyledButton loadBtn = createSmallButton("LOAD", new Color(50, 90, 130));
         loadBtn.setBounds(smallStartX + smallBtnW + smallBtnGap, y, smallBtnW, btnH - 6);
         add(loadBtn);
 
-        StyledButton renameBtn = new StyledButton("RENAME", new Color(80, 80, 50));
-        renameBtn.setFont(new Font("SansSerif", Font.BOLD, 12));
+        StyledButton renameBtn = createSmallButton("RENAME", new Color(80, 80, 50));
         renameBtn.setBounds(smallStartX + (smallBtnW + smallBtnGap) * 2, y, smallBtnW, btnH - 6);
         add(renameBtn);
 
-        StyledButton defaultBtn = new StyledButton("DEFAULT", new Color(120, 80, 40));
-        defaultBtn.setFont(new Font("SansSerif", Font.BOLD, 12));
+        StyledButton defaultBtn = createSmallButton("DEFAULT", new Color(120, 80, 40));
         defaultBtn.setBounds(smallStartX + (smallBtnW + smallBtnGap) * 3, y, smallBtnW, btnH - 6);
         add(defaultBtn);
 
         // --- Background animation ---
-        bgTimer = new Timer(30, e -> {
-            bgPhase = (bgPhase + 0.003f) % 1f;
-            repaint();
-        });
-        bgTimer.start();
+        menuBg = new MenuBackground(6, this);
+        menuBg.start();
 
         // --- Action listeners ---
-
         startBtn.addActionListener(e -> {
             Sound.playClickSound();
             if (!readFieldsIntoSettings()) return;
             settings.applyToGame();
-            stopBgTimer();
+            menuBg.stop();
             mainClass.gamePanel = new GamePanel(mainClass, settings.npcCount);
             mainClass.getContentPane().removeAll();
             mainClass.getContentPane().add(mainClass.gamePanel);
@@ -164,7 +113,7 @@ public class WorldSettingsPanel extends JPanel {
 
         backBtn.addActionListener(e -> {
             Sound.playClickSound();
-            stopBgTimer();
+            menuBg.stop();
             mainClass.mainPanel = new MainPanel(mainClass);
             mainClass.getContentPane().removeAll();
             mainClass.getContentPane().add(mainClass.mainPanel);
@@ -180,14 +129,11 @@ public class WorldSettingsPanel extends JPanel {
                 StyledDialog.showMessageDialog(mainClass,
                     "Maximum " + GameSettings.MAX_SAVES + " save files allowed.<br>Delete or overwrite an existing save.",
                     "Save Limit Reached", true);
-                // Offer to overwrite
-                String[] options = saves.toArray(new String[0]);
-                String choice = showSavePickerDialog(mainClass, "Overwrite a save:", options);
+                String choice = showSavePickerDialog(mainClass, "Overwrite a save:", saves.toArray(new String[0]));
                 if (choice != null) {
                     if (!readFieldsIntoSettings()) return;
                     settings.save(choice);
-                    StyledDialog.showMessageDialog(mainClass,
-                        "Settings saved to '" + choice + "'.", "Saved", false);
+                    StyledDialog.showMessageDialog(mainClass, "Settings saved to '" + choice + "'.", "Saved", false);
                 }
                 return;
             }
@@ -196,8 +142,7 @@ public class WorldSettingsPanel extends JPanel {
             name = name.trim();
             if (!readFieldsIntoSettings()) return;
             settings.save(name);
-            StyledDialog.showMessageDialog(mainClass,
-                "Settings saved to '" + name + "'.", "Saved", false);
+            StyledDialog.showMessageDialog(mainClass, "Settings saved to '" + name + "'.", "Saved", false);
         });
 
         loadBtn.addActionListener(e -> {
@@ -207,8 +152,7 @@ public class WorldSettingsPanel extends JPanel {
                 StyledDialog.showMessageDialog(mainClass, "No save files found.", "Load", true);
                 return;
             }
-            String[] options = saves.toArray(new String[0]);
-            String choice = showSavePickerDialog(mainClass, "Select a save to load:", options);
+            String choice = showSavePickerDialog(mainClass, "Select a save to load:", saves.toArray(new String[0]));
             if (choice != null) {
                 settings.load(choice);
                 populateFields();
@@ -222,18 +166,15 @@ public class WorldSettingsPanel extends JPanel {
                 StyledDialog.showMessageDialog(mainClass, "No save files found.", "Rename", true);
                 return;
             }
-            String[] options = saves.toArray(new String[0]);
-            String choice = showSavePickerDialog(mainClass, "Select a save to rename:", options);
+            String choice = showSavePickerDialog(mainClass, "Select a save to rename:", saves.toArray(new String[0]));
             if (choice != null) {
                 String newName = StyledDialog.showInputDialog(mainClass, "New name for '" + choice + "':", choice);
                 if (newName == null || newName.trim().isEmpty()) return;
                 newName = newName.trim();
                 if (GameSettings.renameSave(choice, newName)) {
-                    StyledDialog.showMessageDialog(mainClass,
-                        "Renamed '" + choice + "' to '" + newName + "'.", "Renamed", false);
+                    StyledDialog.showMessageDialog(mainClass, "Renamed '" + choice + "' to '" + newName + "'.", "Renamed", false);
                 } else {
-                    StyledDialog.showMessageDialog(mainClass,
-                        "Could not rename. A save with that name may already exist.", "Error", true);
+                    StyledDialog.showMessageDialog(mainClass, "Could not rename. A save with that name may already exist.", "Error", true);
                 }
             }
         });
@@ -249,14 +190,39 @@ public class WorldSettingsPanel extends JPanel {
         });
     }
 
-    /** Reads the text fields into the settings object. Returns false if validation fails. */
+    // ── Field Management ─────────────────────────────────────────────────
+
+    private void addFieldRow(String labelText, String value, int leftX, int rightX, int y,
+                             int labelW, int fieldW, int fieldH, boolean isFirst) {
+        JLabel label = createLabel(labelText);
+        label.setBounds(leftX, y, labelW, fieldH);
+        add(label);
+
+        JTextField tf = createField(value);
+        tf.setBounds(rightX, y, fieldW, fieldH);
+        add(tf);
+
+        // Store references to fields for later access
+        if (isFirst) {
+            tfPlayerName = tf;
+        } else if (tfNpcCount == null) {
+            tfNpcCount = tf;
+        } else if (tfWorldWidth == null) {
+            tfWorldWidth = tf;
+        } else if (tfWorldHeight == null) {
+            tfWorldHeight = tf;
+        } else if (tfCellDensity == null) {
+            tfCellDensity = tf;
+        }
+    }
+
     private boolean readFieldsIntoSettings() {
         String name = tfPlayerName.getText().trim();
         if (name.isEmpty()) name = GameSettings.DEFAULT_PLAYER_NAME;
         settings.playerName = name;
 
         try {
-            settings.npcCount = Math.max(3, Integer.parseInt(tfNpcCount.getText().trim()));
+            settings.npcCount = Math.max(GameConstants.MIN_NPC_COUNT, Integer.parseInt(tfNpcCount.getText().trim()));
         } catch (NumberFormatException ex) {
             StyledDialog.showMessageDialog(SwingUtilities.getWindowAncestor(this),
                 "Please enter a valid number for NPC count.", "Invalid Input", true);
@@ -266,9 +232,10 @@ public class WorldSettingsPanel extends JPanel {
         try {
             int w = Integer.parseInt(tfWorldWidth.getText().trim());
             int h = Integer.parseInt(tfWorldHeight.getText().trim());
-            if (w < 800 || h < 600) {
+            if (w < GameConstants.MIN_WORLD_WIDTH || h < GameConstants.MIN_WORLD_HEIGHT) {
                 StyledDialog.showMessageDialog(SwingUtilities.getWindowAncestor(this),
-                    "Minimum world size is 800 x 600.", "Invalid Size", true);
+                    "Minimum world size is " + GameConstants.MIN_WORLD_WIDTH + " x " + GameConstants.MIN_WORLD_HEIGHT + ".",
+                    "Invalid Size", true);
                 return false;
             }
             settings.worldWidth = w;
@@ -296,7 +263,6 @@ public class WorldSettingsPanel extends JPanel {
         return true;
     }
 
-    /** Populates the text fields from the current settings object */
     private void populateFields() {
         tfPlayerName.setText(settings.playerName);
         tfNpcCount.setText(String.valueOf(settings.npcCount));
@@ -305,12 +271,12 @@ public class WorldSettingsPanel extends JPanel {
         tfCellDensity.setText(String.format("%.2f", settings.cellDensity));
     }
 
-    /** Shows a picker dialog for selecting a save file. Returns the chosen name or null. */
+    // ── Save Picker Dialog ───────────────────────────────────────────────
+
     private String showSavePickerDialog(MainClass mainClass, String message, String[] options) {
         if (options.length == 0) return null;
 
-        JFrame owner = mainClass;
-        JDialog dialog = new JDialog(owner, "", true);
+        JDialog dialog = new JDialog(mainClass, "", true);
         dialog.setUndecorated(true);
         dialog.setBackground(new Color(0, 0, 0, 0));
 
@@ -338,21 +304,19 @@ public class WorldSettingsPanel extends JPanel {
         gbc.fill = GridBagConstraints.HORIZONTAL;
         gbc.insets = new Insets(6, 24, 6, 24);
 
-        // Message label
         gbc.gridy = 0;
         gbc.insets = new Insets(20, 24, 12, 24);
         JLabel label = new JLabel(message);
-        label.setFont(new Font("SansSerif", Font.BOLD, 16));
+        label.setFont(new Font(GameConstants.FONT_FAMILY, Font.BOLD, 16));
         label.setForeground(new Color(220, 230, 255));
         content.add(label, gbc);
 
-        // One button per save
         for (int i = 0; i < options.length; i++) {
             gbc.gridy = i + 1;
             gbc.insets = new Insets(4, 24, 4, 24);
             String opt = options[i];
             StyledButton btn = new StyledButton(opt, new Color(50, 80, 130));
-            btn.setFont(new Font("SansSerif", Font.BOLD, 14));
+            btn.setFont(new Font(GameConstants.FONT_FAMILY, Font.BOLD, 14));
             btn.setPreferredSize(new Dimension(220, 38));
             btn.addActionListener(ev -> {
                 Sound.playClickSound();
@@ -362,13 +326,12 @@ public class WorldSettingsPanel extends JPanel {
             content.add(btn, gbc);
         }
 
-        // Cancel button
         gbc.gridy = options.length + 1;
         gbc.insets = new Insets(12, 24, 20, 24);
         gbc.fill = GridBagConstraints.NONE;
         gbc.anchor = GridBagConstraints.CENTER;
         StyledButton cancelBtn = new StyledButton("CANCEL", new Color(100, 60, 60));
-        cancelBtn.setFont(new Font("SansSerif", Font.BOLD, 14));
+        cancelBtn.setFont(new Font(GameConstants.FONT_FAMILY, Font.BOLD, 14));
         cancelBtn.setPreferredSize(new Dimension(120, 38));
         cancelBtn.addActionListener(ev -> {
             Sound.playClickSound();
@@ -378,26 +341,30 @@ public class WorldSettingsPanel extends JPanel {
 
         dialog.setContentPane(content);
         dialog.pack();
-        dialog.setLocationRelativeTo(owner);
+        dialog.setLocationRelativeTo(mainClass);
         dialog.setVisible(true);
 
         return result[0];
     }
 
-    private void stopBgTimer() {
-        if (bgTimer != null) bgTimer.stop();
+    // ── UI Helpers ───────────────────────────────────────────────────────
+
+    private StyledButton createSmallButton(String text, Color color) {
+        StyledButton btn = new StyledButton(text, color);
+        btn.setFont(new Font(GameConstants.FONT_FAMILY, Font.BOLD, 12));
+        return btn;
     }
 
     private JLabel createLabel(String text) {
         JLabel label = new JLabel(text);
         label.setForeground(new Color(180, 200, 240));
-        label.setFont(new Font("SansSerif", Font.BOLD, 14));
+        label.setFont(new Font(GameConstants.FONT_FAMILY, Font.BOLD, 14));
         return label;
     }
 
     private JTextField createField(String text) {
         JTextField tf = new JTextField(text);
-        tf.setFont(new Font("SansSerif", Font.PLAIN, 13));
+        tf.setFont(new Font(GameConstants.FONT_FAMILY, Font.PLAIN, 13));
         tf.setBackground(new Color(40, 45, 60));
         tf.setForeground(Color.WHITE);
         tf.setCaretColor(Color.WHITE);
@@ -410,32 +377,7 @@ public class WorldSettingsPanel extends JPanel {
     @Override
     protected void paintComponent(Graphics g) {
         super.paintComponent(g);
-        Graphics2D g2d = (Graphics2D) g;
-        g2d.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-        g2d.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
-
-        int w = MainClass.SCREEN_WIDTH;
-        int h = MainClass.SCREEN_HEIGHT;
-
-        // Animated gradient background
-        Color c1 = Color.getHSBColor(bgPhase, 0.35f, 0.18f);
-        Color c2 = Color.getHSBColor((bgPhase + 0.25f) % 1f, 0.30f, 0.12f);
-        g2d.setPaint(new GradientPaint(0, 0, c1, w, h, c2));
-        g2d.fillRect(0, 0, w, h);
-
-        // Subtle floating circles
-        Composite orig = g2d.getComposite();
-        for (int i = 0; i < 6; i++) {
-            float hue = (bgPhase + i * 0.15f) % 1f;
-            Color circleColor = Color.getHSBColor(hue, 0.3f, 0.22f);
-            g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 0.05f));
-            g2d.setColor(circleColor);
-            int cx = (int) (w * 0.2 + (w * 0.6) * Math.sin(bgPhase * Math.PI + i * 1.0));
-            int cy = (int) (h * 0.2 + (h * 0.6) * Math.cos(bgPhase * Math.PI * 0.6 + i * 1.3));
-            int sz = 80 + i * 40;
-            g2d.fillOval(cx - sz, cy - sz, sz * 2, sz * 2);
-        }
-        g2d.setComposite(orig);
+        menuBg.draw((Graphics2D) g, MainClass.SCREEN_WIDTH, MainClass.SCREEN_HEIGHT);
     }
 
     @Override
@@ -444,17 +386,8 @@ public class WorldSettingsPanel extends JPanel {
         Graphics2D g2d = (Graphics2D) g;
         g2d.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
 
-        // High score
-        g2d.setColor(new Color(180, 200, 255, 180));
-        g2d.setFont(new Font("SansSerif", Font.PLAIN, 14));
-        g2d.drawString("High Score: " + GamePanel.highscore, 15, 25);
-
-        // Title
-        String title = "World Settings";
-        g2d.setFont(new Font("SansSerif", Font.BOLD, 48));
-        FontMetrics fm = g2d.getFontMetrics();
-        int tx = (MainClass.SCREEN_WIDTH - fm.stringWidth(title)) / 2;
-        g2d.setColor(new Color(220, 240, 255));
-        g2d.drawString(title, tx, MainClass.SCREEN_HEIGHT / 2 - 220);
+        MenuBackground.drawHighScore(g2d, GamePanel.highscore);
+        MenuBackground.drawTitle(g2d, "World Settings", 48,
+            MainClass.SCREEN_HEIGHT / 2 - 220, MainClass.SCREEN_WIDTH, false);
     }
 }
