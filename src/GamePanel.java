@@ -34,6 +34,17 @@ public class GamePanel extends JPanel implements KeyListener {
      */
     public static double cellDensity = GameConstants.DEFAULT_CELL_DENSITY;
 
+    // ── NPC difficulty distribution (set from GameSettings.applyToGame()) ─
+    /** Number of EASY NPCs to spawn; uses round-robin when all three are 0. */
+    public static int npcEasyCount   = GameSettings.DEFAULT_NPC_EASY;
+    /** Number of MEDIUM NPCs to spawn */
+    public static int npcMediumCount = GameSettings.DEFAULT_NPC_MEDIUM;
+    /** Number of HARD NPCs to spawn */
+    public static int npcHardCount   = GameSettings.DEFAULT_NPC_HARD;
+
+    /** Multiplier for the shave/erosion rate (1.0 = default) */
+    public static double shaveRateMultiplier = GameSettings.DEFAULT_SHAVE_RATE_MULTIPLIER;
+
     // ── Entities ─────────────────────────────────────────────────────────
 
     private Cell playerCell;
@@ -70,6 +81,9 @@ public class GamePanel extends JPanel implements KeyListener {
 
     /** When true the game has ended */
     public volatile boolean gameOver = false;
+
+    /** When true the player eliminated all NPCs (displayed on game-over screen) */
+    public volatile boolean victory = false;
 
     /**
      * When true the game loop is frozen while the player picks an upgrade.
@@ -115,11 +129,14 @@ public class GamePanel extends JPanel implements KeyListener {
     /** Countdown ticks remaining before Dodge can be used again (0 = ready) */
     private int dodgeCooldownTicks = 0;
 
-    /** Number of Magnet upgrade levels (determines pull radius) */
+    /** Number of Magnet upgrade levels (determines pull radius; 0 = base magnet only) */
     public int magnetLevel = 0;
 
-    /** World-space radius in which food cells are attracted to the player */
-    public double magnetRadius = 0.0;
+    /**
+     * World-space radius in which food cells are attracted to the player.
+     * Initialised to BASE_MAGNET_RADIUS so a small effect is always active.
+     */
+    public double magnetRadius = GameConstants.BASE_MAGNET_RADIUS;
 
     /** Number of Regeneration upgrade levels */
     public int regenLevel = 0;
@@ -194,6 +211,7 @@ public class GamePanel extends JPanel implements KeyListener {
     public double getCameraY() { return cameraY; }
     public double getCameraZoom() { return cameraZoom; }
     public boolean isGameOver() { return gameOver; }
+    public boolean isVictory() { return victory; }
     public boolean isPaused() { return paused; }
     public UpgradeManager getUpgradeManager() { return upgradeManager; }
     public int getDodgeCooldownTicks() { return dodgeCooldownTicks; }
@@ -219,15 +237,40 @@ public class GamePanel extends JPanel implements KeyListener {
     private void spawnNPCs() {
         Set<String> usedNames = new HashSet<>();
         usedNames.add(playerName);
-        NPC.Difficulty[] difficulties = NPC.Difficulty.values();
-        for (int i = 0; i < npcCount; i++) {
+
+        // Determine per-difficulty counts: use static distribution if total > 0,
+        // otherwise fall back to round-robin across npcCount.
+        int totalDistrib = npcEasyCount + npcMediumCount + npcHardCount;
+        int spawnEasy, spawnMedium, spawnHard;
+        if (totalDistrib > 0) {
+            spawnEasy   = npcEasyCount;
+            spawnMedium = npcMediumCount;
+            spawnHard   = npcHardCount;
+        } else {
+            // Round-robin: evenly distribute across difficulties
+            NPC.Difficulty[] difficulties = NPC.Difficulty.values();
+            spawnEasy = spawnMedium = spawnHard = 0;
+            for (int i = 0; i < npcCount; i++) {
+                switch (difficulties[i % difficulties.length]) {
+                    case EASY:   spawnEasy++;   break;
+                    case MEDIUM: spawnMedium++; break;
+                    case HARD:   spawnHard++;   break;
+                }
+            }
+        }
+
+        spawnNPCsOfDifficulty(spawnEasy,   NPC.Difficulty.EASY,   usedNames);
+        spawnNPCsOfDifficulty(spawnMedium, NPC.Difficulty.MEDIUM, usedNames);
+        spawnNPCsOfDifficulty(spawnHard,   NPC.Difficulty.HARD,   usedNames);
+    }
+
+    private void spawnNPCsOfDifficulty(int count, NPC.Difficulty diff, Set<String> usedNames) {
+        for (int i = 0; i < count; i++) {
             int cx = GameConstants.SPAWN_BORDER + random.nextInt(
                 Math.max(1, MainClass.WORLD_WIDTH - 2 * GameConstants.SPAWN_BORDER));
             int cy = GameConstants.SPAWN_BORDER + random.nextInt(
                 Math.max(1, MainClass.WORLD_HEIGHT - 2 * GameConstants.SPAWN_BORDER));
-            NPC.Difficulty diff = difficulties[i % difficulties.length];
-            NPC npc = new NPC(cx, cy, GameConstants.INITIAL_RADIUS, usedNames, diff);
-            npcList.add(npc);
+            npcList.add(new NPC(cx, cy, GameConstants.INITIAL_RADIUS, usedNames, diff));
         }
     }
 
@@ -391,12 +434,15 @@ public class GamePanel extends JPanel implements KeyListener {
                     applyRegen();
                     checkNPCUpgrades();
 
-                    // Check upgrade threshold
+                    // Check score-based upgrade threshold
                     upgradeManager.checkScore(hud.score);
                     if (upgradeManager.isUpgradeReady() && !upgradeSelecting) {
                         upgradeSelecting = true;
                         SwingUtilities.invokeLater(this::showUpgradeSelection);
                     }
+
+                    // Check victory: all NPCs dead
+                    checkAllNPCsDead();
                 }
 
                 repaint();
@@ -411,11 +457,37 @@ public class GamePanel extends JPanel implements KeyListener {
         thread.start();
     }
 
+    // ── Victory Check ────────────────────────────────────────────────────
+
+    /**
+     * Triggers a victory if all NPCs are dead and the game is still running.
+     * Called every tick after collision handling.
+     */
+    private void checkAllNPCsDead() {
+        if (gameOver || npcList.isEmpty()) return;
+        for (NPC npc : npcList) {
+            if (npc.alive) return; // at least one alive
+        }
+        // All NPCs are dead → victory
+        triggerVictory();
+    }
+
+    private void triggerVictory() {
+        if (gameOver) return;
+        hud.updateElapsedTime();
+        finalElapsedTime = hud.elapsedTime;
+        gameOver = true;
+        victory  = true;
+        ToneGenerator.stopLine(gameAmbientLine);
+        gameAmbientLine = null;
+        SwingUtilities.invokeLater(this::showGameOverScreen);
+    }
+
     // ── Roguelite Passive Effects ────────────────────────────────────────
 
     /**
      * Attracts food cells within {@code magnetRadius} toward the player each tick.
-     * Does nothing when magnetLevel is 0.
+     * A small base effect is always active even before the Magnet upgrade is taken.
      */
     private void applyMagnet() {
         if (magnetRadius <= 0) return;
@@ -459,6 +531,21 @@ public class GamePanel extends JPanel implements KeyListener {
             if (npc.alive) {
                 npc.upgradeManager.checkAndAutoApplyForNPC(npc.score, npc);
             }
+        }
+    }
+
+    // ── Kill-based Upgrade ───────────────────────────────────────────────
+
+    /**
+     * Called by CollisionHandler when the player eats an NPC.
+     * Immediately offers an upgrade selection if none is already pending.
+     */
+    public void offerKillUpgrade() {
+        if (upgradeSelecting || upgradeManager.isUpgradeReady()) return;
+        upgradeManager.triggerKillUpgrade();
+        if (upgradeManager.isUpgradeReady()) {
+            upgradeSelecting = true;
+            SwingUtilities.invokeLater(this::showUpgradeSelection);
         }
     }
 
@@ -625,7 +712,7 @@ public class GamePanel extends JPanel implements KeyListener {
     }
 
     private void showGameOverScreen() {
-        StyledButton restartButton = new StyledButton("RESTART", GameConstants.BTN_GREEN);
+        StyledButton restartButton = new StyledButton("MENU", GameConstants.BTN_GREEN);
         restartButton.setFont(new Font(GameConstants.FONT_FAMILY, Font.BOLD, 20));
         int bw = GameConstants.BUTTON_WIDTH + 60;
         int bh = GameConstants.BUTTON_HEIGHT + 14;

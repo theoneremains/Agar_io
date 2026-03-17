@@ -183,6 +183,82 @@ public class GameRenderer {
             drawSimpleIndicator(g2d, indicatorX, "\u2665 Regen x" + game.regenLevel,
                 new Color(100, 220, 130));
         }
+
+        // Upgrade history panel (top-center area, below score)
+        drawPlayerUpgradeHistory(g2d);
+    }
+
+    /**
+     * Draws a compact panel listing all upgrades the player has taken so far,
+     * shown below the score line on the left side of the screen.
+     */
+    private void drawPlayerUpgradeHistory(Graphics2D g2d) {
+        java.util.Map<UpgradeType, Integer> counts = game.getUpgradeManager().getAppliedCounts();
+        if (counts.isEmpty()) return;
+
+        int x = 10;
+        int y = 38;
+        int badgeH = 16;
+        int badgePad = 4;
+        int badgeGap = 4;
+
+        g2d.setFont(new Font(GameConstants.FONT_FAMILY, Font.BOLD, 11));
+
+        for (java.util.Map.Entry<UpgradeType, Integer> entry : counts.entrySet()) {
+            UpgradeType type = entry.getKey();
+            int count = entry.getValue();
+
+            String label = upgradeShortName(type) + (count > 1 ? " x" + count : "");
+            FontMetrics fm = g2d.getFontMetrics();
+            int badgeW = fm.stringWidth(label) + badgePad * 2;
+
+            // Badge background
+            g2d.setColor(new Color(20, 30, 50, 190));
+            g2d.fillRoundRect(x, y, badgeW, badgeH, 6, 6);
+            // Badge border
+            g2d.setColor(upgradeColor(type));
+            g2d.drawRoundRect(x, y, badgeW, badgeH, 6, 6);
+            // Badge text
+            g2d.setColor(Color.WHITE);
+            g2d.drawString(label, x + badgePad, y + fm.getAscent() + 1);
+
+            x += badgeW + badgeGap;
+            // Wrap to next line if near screen edge
+            if (x > MainClass.SCREEN_WIDTH / 2) {
+                x = 10;
+                y += badgeH + badgeGap;
+            }
+        }
+    }
+
+    /** Returns a short display name for each upgrade type suitable for HUD badges. */
+    private String upgradeShortName(UpgradeType type) {
+        switch (type) {
+            case SPEED_BOOST:    return "\u26A1 Speed";
+            case SIZE_BOOST:     return "\u25CF Size";
+            case REGENERATION:   return "\u2665 Regen";
+            case SPLIT_SHIELD:   return "\u25A3 Shield";
+            case DENSITY_BOOST:  return "\u2726 Density";
+            case DIVERGENCY_BOOST: return "\u2665 Big Feast";
+            case MAGNET:         return "\u25CE Magnet";
+            case DODGE:          return "\u21E8 Dodge";
+            default:             return type.displayName;
+        }
+    }
+
+    /** Returns a theme color for each upgrade type for badge borders. */
+    private Color upgradeColor(UpgradeType type) {
+        switch (type) {
+            case SPEED_BOOST:    return new Color(255, 220, 50);
+            case SIZE_BOOST:     return new Color(100, 200, 100);
+            case REGENERATION:   return new Color(100, 220, 130);
+            case SPLIT_SHIELD:   return new Color(150, 150, 255);
+            case DENSITY_BOOST:  return new Color(255, 180, 80);
+            case DIVERGENCY_BOOST: return new Color(255, 120, 80);
+            case MAGNET:         return new Color(80, 200, 255);
+            case DODGE:          return new Color(220, 80, 220);
+            default:             return Color.WHITE;
+        }
     }
 
     /**
@@ -365,17 +441,28 @@ public class GameRenderer {
     }
 
     private void drawGameOverOverlay(Graphics2D g2d) {
-        // Dark overlay
-        g2d.setColor(new Color(0, 0, 0, 180));
+        boolean isVictory = game.isVictory();
+
+        // Dark overlay (gold tint for victory, dark for loss)
+        g2d.setColor(isVictory ? new Color(40, 30, 0, 200) : new Color(0, 0, 0, 180));
         g2d.fillRect(0, 0, MainClass.SCREEN_WIDTH, MainClass.SCREEN_HEIGHT);
 
-        // Game Over title
-        g2d.setColor(Color.RED);
+        // Title: VICTORY or GAME OVER
+        String title = isVictory ? "VICTORY!" : "GAME OVER";
+        g2d.setColor(isVictory ? new Color(255, 220, 0) : Color.RED);
         g2d.setFont(new Font(GameConstants.FONT_FAMILY_MONO, Font.BOLD, 64));
-        String title = "GAME OVER";
         FontMetrics tfm = g2d.getFontMetrics();
         int tx = (MainClass.SCREEN_WIDTH - tfm.stringWidth(title)) / 2;
         g2d.drawString(title, tx, 120);
+
+        // Victory sub-message
+        if (isVictory) {
+            g2d.setFont(new Font(GameConstants.FONT_FAMILY, Font.BOLD, 20));
+            g2d.setColor(new Color(255, 240, 180));
+            String sub = "You eliminated all opponents!";
+            FontMetrics sfm2 = g2d.getFontMetrics();
+            g2d.drawString(sub, (MainClass.SCREEN_WIDTH - sfm2.stringWidth(sub)) / 2, 155);
+        }
 
         // Final standings
         List<Object[]> board = game.getScoreboard();

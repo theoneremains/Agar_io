@@ -126,6 +126,8 @@ public final class GameConstants {
     public static final int UPGRADE_BTN_HEIGHT  = 50;
     public static final int UPGRADE_BTN_MARGIN  = 10;
     // ── Magnet upgrade ───────────────────────────────────────────────────
+    /** Small base magnet radius the player always has (even without the upgrade) */
+    public static final double BASE_MAGNET_RADIUS = 30.0;
     /** World-space radius added per Magnet upgrade level */
     public static final double MAGNET_RADIUS_PER_LEVEL = 160.0;
     /** Pixels per tick that attracted food cells move toward the player */

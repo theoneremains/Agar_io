@@ -93,6 +93,8 @@ public class CollisionHandler {
                     npc.cell.getCenterX(), npc.cell.getCenterY(), eatenRad, npc.cell.cellColor));
                 player.cellRad = GameConstants.growRadius(player.cellRad, eatenRad);
                 game.updatePlayerScore();
+                // Offer an upgrade for killing an NPC
+                game.offerKillUpgrade();
             }
         }
     }
@@ -132,6 +134,8 @@ public class CollisionHandler {
                     predator.grow(eatenRad);
                     game.getEatEffects().add(new EatEffect(
                         prey.cell.getCenterX(), prey.cell.getCenterY(), eatenRad, prey.cell.cellColor));
+                    // Bonus upgrade for the NPC that made the kill
+                    predator.upgradeManager.triggerNPCKillUpgrade(predator);
                 }
             }
         }
@@ -259,8 +263,8 @@ public class CollisionHandler {
                                        + attacker.speedY * attacker.speedY);
         double speedFactor = Math.max(0.5, attackerSpeed / GameConstants.DEFAULT_SPEED);
 
-        // Shaved area this tick
-        double shavedArea = overlapDepth * speedFactor * GameConstants.SHAVE_RATE;
+        // Shaved area this tick (multiplied by global shave-rate setting)
+        double shavedArea = overlapDepth * speedFactor * GameConstants.SHAVE_RATE * GamePanel.shaveRateMultiplier;
 
         // Apply Split Shield damage reduction
         double shieldMultiplier;
