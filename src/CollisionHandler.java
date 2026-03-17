@@ -4,19 +4,34 @@ import java.util.concurrent.CopyOnWriteArrayList;
 
 /**
  * CollisionHandler : Manages all collision detection and resolution logic,
- * including eating, division mechanics, and bounce effects.
- * Extracted from GamePanel to improve code organization and readability.
+ * including eating, shave/erosion mechanics, and bounce effects.
+ *
+ * <p><strong>Shave mechanic</strong> replaces the old sustained-contact division:
+ * when a slightly-larger cell overlaps a smaller one (within the canDivide zone),
+ * the smaller cell continuously loses area proportional to the overlap depth and
+ * the attacker's speed.  Lost area accumulates and spawns as food cells at the
+ * contact point once a threshold is reached.  Split Shield upgrades reduce the
+ * shave damage taken.
+ *
  * @author Kamil Yunus Ozkaya
  */
 public class CollisionHandler {
 
     private final GamePanel game;
 
-    /** Tracks sustained contact duration for division mechanics (cell pair → ticks) */
-    private HashMap<Long, Integer> divisionContacts = new HashMap<>();
+    /**
+     * Accumulated shaved area per cell-pair.
+     * Key = contactKey(attacker, target), value = accumulated area.
+     * When accumulated area exceeds {@link GameConstants#SHAVE_MIN_FOOD_AREA},
+     * a food cell is spawned at the contact point and the accumulator resets.
+     */
+    private HashMap<Long, double[]> shaveAccumulators = new HashMap<>();
 
     /** Timestamp of last bounce effect to prevent spam */
     private long lastBounceTime = 0;
+
+    /** Tick counter for spacing out contact visual effects */
+    private int shaveTickCounter = 0;
 
     public CollisionHandler(GamePanel game) {
         this.game = game;
@@ -25,7 +40,7 @@ public class CollisionHandler {
     /**
      * Runs all collision checks for a single game tick.
      * Handles: player↔food, player↔NPC, NPC↔food, NPC↔NPC, NPC↔player eating,
-     * plus all division and bounce interactions.
+     * plus shave (erosion) and bounce interactions.
      */
     public void update() {
         if (game.isGameOver()) return;
@@ -35,8 +50,9 @@ public class CollisionHandler {
         checkNPCsEatFood();
         checkNPCsEatNPCs();
         checkNPCsEatPlayer();
-        updateDivisions();
+        updateShaving();
         updateBounceEffects();
+        shaveTickCounter++;
     }
 
     // ── Eating Collisions ────────────────────────────────────────────────
@@ -134,48 +150,47 @@ public class CollisionHandler {
         }
     }
 
-    // ── Division Mechanics ───────────────────────────────────────────────
+    // ── Shave (Erosion) Mechanics ─────────────────────────────────────────
 
-    private void updateDivisions() {
+    /**
+     * Processes all shave interactions for the current tick.
+     * When a cell is slightly larger than another (canDivide zone) and they
+     * overlap, the smaller cell loses area proportional to the overlap depth
+     * and the attacker's speed.  Accumulated shaved area spawns as food at
+     * the contact point.
+     */
+    private void updateShaving() {
         if (game.isGameOver()) return;
 
-        HashMap<Long, Integer> newContacts = new HashMap<>();
+        HashMap<Long, double[]> newAccumulators = new HashMap<>();
         Cell player = game.getPlayerCell();
         CopyOnWriteArrayList<Cell> foodCells = game.getFoodCells();
         CopyOnWriteArrayList<NPC> npcList = game.getNPCList();
 
-        // Player divides food cells
+        // Player shaves food cells
         for (int i = 0; i < foodCells.size(); i++) {
             if (i >= foodCells.size()) break;
             Cell food = foodCells.get(i);
             if (player.canDivide(food) && player.isTouching(food)) {
                 long key = contactKey(player, food);
-                int ticks = divisionContacts.getOrDefault(key, 0) + 1;
-                if (ticks >= GameConstants.DIVISION_CONTACT_TICKS) {
-                    divideFoodCell(i, player);
+                shaveTarget(food, player, null, false, key, newAccumulators);
+                if (food.cellRad < GameConstants.MIN_DIVIDE_RADIUS) {
+                    foodCells.remove(i);
                     i--;
-                } else {
-                    newContacts.put(key, ticks);
-                    spawnDivisionContactEffect(player, food, ticks);
                 }
             }
         }
 
-        // Player divides NPC cells
+        // Player shaves NPCs
         for (NPC npc : npcList) {
             if (!npc.alive) continue;
             if (player.canDivide(npc.cell) && player.isTouching(npc.cell)) {
                 long key = contactKey(player, npc.cell);
-                int ticks = divisionContacts.getOrDefault(key, 0) + 1;
-                if (ticks >= GameConstants.DIVISION_CONTACT_TICKS) {
-                    divideEntityCell(npc.cell, player, npc);
-                } else {
-                    newContacts.put(key, ticks);
-                }
+                shaveTarget(npc.cell, player, npc, false, key, newAccumulators);
             }
         }
 
-        // NPCs divide food cells
+        // NPCs shave food cells
         for (NPC npc : npcList) {
             if (!npc.alive) continue;
             for (int i = 0; i < foodCells.size(); i++) {
@@ -183,51 +198,132 @@ public class CollisionHandler {
                 Cell food = foodCells.get(i);
                 if (npc.cell.canDivide(food) && npc.cell.isTouching(food)) {
                     long key = contactKey(npc.cell, food);
-                    int ticks = divisionContacts.getOrDefault(key, 0) + 1;
-                    if (ticks >= GameConstants.DIVISION_CONTACT_TICKS) {
-                        divideFoodCell(i, npc.cell);
+                    shaveTarget(food, npc.cell, null, false, key, newAccumulators);
+                    if (food.cellRad < GameConstants.MIN_DIVIDE_RADIUS) {
+                        foodCells.remove(i);
                         i--;
-                    } else {
-                        newContacts.put(key, ticks);
                     }
                 }
             }
         }
 
-        // NPCs divide other NPCs
-        for (NPC predator : npcList) {
-            if (!predator.alive) continue;
-            for (NPC prey : npcList) {
-                if (!prey.alive || predator == prey) continue;
-                if (predator.cell.canDivide(prey.cell) && predator.cell.isTouching(prey.cell)) {
-                    long key = contactKey(predator.cell, prey.cell);
-                    int ticks = divisionContacts.getOrDefault(key, 0) + 1;
-                    if (ticks >= GameConstants.DIVISION_CONTACT_TICKS) {
-                        divideEntityCell(prey.cell, predator.cell, prey);
-                    } else {
-                        newContacts.put(key, ticks);
-                    }
+        // NPCs shave other NPCs
+        for (NPC attacker : npcList) {
+            if (!attacker.alive) continue;
+            for (NPC target : npcList) {
+                if (!target.alive || attacker == target) continue;
+                if (attacker.cell.canDivide(target.cell) && attacker.cell.isTouching(target.cell)) {
+                    long key = contactKey(attacker.cell, target.cell);
+                    shaveTarget(target.cell, attacker.cell, target, false, key, newAccumulators);
                 }
             }
         }
 
-        // NPCs divide the player
+        // NPCs shave the player
         if (!game.isGameOver()) {
             for (NPC npc : npcList) {
                 if (!npc.alive) continue;
                 if (npc.cell.canDivide(player) && npc.cell.isTouching(player)) {
                     long key = contactKey(npc.cell, player);
-                    int ticks = divisionContacts.getOrDefault(key, 0) + 1;
-                    if (ticks >= GameConstants.DIVISION_CONTACT_TICKS) {
-                        dividePlayerCell(npc.cell);
-                    } else {
-                        newContacts.put(key, ticks);
-                    }
+                    shaveTarget(player, npc.cell, null, true, key, newAccumulators);
                 }
             }
         }
 
-        divisionContacts = newContacts;
+        shaveAccumulators = newAccumulators;
+    }
+
+    /**
+     * Core shave logic: erodes the target cell by an amount based on overlap
+     * depth and attacker speed, accumulating debris for food cell spawning.
+     *
+     * @param target      the cell being eroded
+     * @param attacker    the larger cell doing the eroding
+     * @param targetNpc   the NPC owning target (null if food or player)
+     * @param isPlayer    true when the target is the player cell
+     * @param key         contact key for this pair
+     * @param accumulators live accumulator map to update
+     */
+    private void shaveTarget(Cell target, Cell attacker, NPC targetNpc, boolean isPlayer,
+                             long key, HashMap<Long, double[]> accumulators) {
+        // Calculate overlap depth
+        double dx = attacker.getCenterX() - target.getCenterX();
+        double dy = attacker.getCenterY() - target.getCenterY();
+        double dist = Math.sqrt(dx * dx + dy * dy);
+        double overlapDepth = (attacker.cellRad + target.cellRad) - dist;
+
+        if (overlapDepth < GameConstants.SHAVE_OVERLAP_THRESHOLD) return;
+
+        // Speed factor: faster attacker = more damage
+        double attackerSpeed = Math.sqrt(attacker.speedX * attacker.speedX
+                                       + attacker.speedY * attacker.speedY);
+        double speedFactor = Math.max(0.5, attackerSpeed / GameConstants.DEFAULT_SPEED);
+
+        // Shaved area this tick
+        double shavedArea = overlapDepth * speedFactor * GameConstants.SHAVE_RATE;
+
+        // Apply Split Shield damage reduction
+        double shieldMultiplier;
+        if (isPlayer) {
+            shieldMultiplier = game.splitShieldFactor;
+        } else if (targetNpc != null) {
+            shieldMultiplier = targetNpc.splitShieldFactor;
+        } else {
+            shieldMultiplier = GameConstants.SPLIT_SHIELD_BASE; // food: no shield
+        }
+        shavedArea *= shieldMultiplier;
+
+        // Apply erosion to target
+        double targetArea = target.cellRad * target.cellRad;
+        double newArea = targetArea - shavedArea;
+        double minArea = GameConstants.MIN_DIVIDE_RADIUS * GameConstants.MIN_DIVIDE_RADIUS;
+        if (newArea < minArea) newArea = minArea;
+        double newRad = Math.sqrt(newArea);
+
+        if (target.cellRad - newRad < 0.001) return; // negligible change
+
+        target.cellRad = newRad;
+
+        // Update score for the target
+        if (isPlayer) {
+            game.updatePlayerScore();
+        } else if (targetNpc != null) {
+            targetNpc.score = GameConstants.scoreFromRadius(newRad);
+        }
+
+        // Accumulate shaved area for food spawning
+        double[] acc = shaveAccumulators.getOrDefault(key, new double[]{0});
+        acc[0] += shavedArea;
+        accumulators.put(key, acc);
+
+        // Spawn food cell when enough area has accumulated
+        if (acc[0] >= GameConstants.SHAVE_MIN_FOOD_AREA && dist > 0.01) {
+            double foodRad = Math.sqrt(acc[0]);
+            // Contact point on target's surface facing the attacker
+            double contactX = target.getCenterX() + (dx / dist) * target.cellRad;
+            double contactY = target.getCenterY() + (dy / dist) * target.cellRad;
+
+            Cell foodCell = new Cell((int) contactX, (int) contactY, foodRad);
+            foodCell.cellColor = target.cellColor;
+            foodCell.spawnAlpha = 1f;
+            game.getFoodCells().add(foodCell);
+
+            // Small eat-effect burst at the contact point
+            game.getEatEffects().add(new EatEffect(contactX, contactY, foodRad, target.cellColor));
+
+            acc[0] = 0; // reset accumulator
+        }
+
+        // Periodic visual contact effect
+        if (shaveTickCounter % GameConstants.SHAVE_EFFECT_INTERVAL == 0) {
+            CopyOnWriteArrayList<ContactEffect> effects = game.getContactEffects();
+            if (effects.size() < GameConstants.MAX_CONTACT_EFFECTS) {
+                double midX = (attacker.getCenterX() + target.getCenterX()) / 2;
+                double midY = (attacker.getCenterY() + target.getCenterY()) / 2;
+                effects.add(new ContactEffect(midX, midY,
+                    Math.min(attacker.cellRad, target.cellRad), target.cellColor, true));
+            }
+        }
     }
 
     // ── Bounce Effects ───────────────────────────────────────────────────
@@ -273,7 +369,7 @@ public class CollisionHandler {
         }
     }
 
-    // ── Division Helpers ─────────────────────────────────────────────────
+    // ── Helpers ───────────────────────────────────────────────────────────
 
     /**
      * Generates a unique contact key for a pair of cells.
@@ -281,163 +377,5 @@ public class CollisionHandler {
     private static long contactKey(Cell attacker, Cell target) {
         return ((long) System.identityHashCode(attacker) << 32)
              | (System.identityHashCode(target) & 0xFFFFFFFFL);
-    }
-
-    /**
-     * Computes division geometry: angle, positions of two halves.
-     */
-    private static double[] computeDivisionGeometry(Cell target, Cell attacker) {
-        double cellCX = target.getCenterX();
-        double cellCY = target.getCenterY();
-        double attackCX = attacker.getCenterX();
-        double attackCY = attacker.getCenterY();
-
-        double contactAngle = Math.atan2(cellCY - attackCY, cellCX - attackCX);
-        double divAngle = contactAngle + Math.PI / 2;
-        double moveDist = target.cellRad * GameConstants.DIVISION_SEPARATION;
-
-        return new double[] {
-            cellCX, cellCY,
-            cellCX + Math.cos(divAngle) * moveDist,   // posAX
-            cellCY + Math.sin(divAngle) * moveDist,   // posAY
-            cellCX - Math.cos(divAngle) * moveDist,   // posBX
-            cellCY - Math.sin(divAngle) * moveDist,   // posBY
-            divAngle
-        };
-    }
-
-    private void divideFoodCell(int foodIndex, Cell attacker) {
-        CopyOnWriteArrayList<Cell> foodCells = game.getFoodCells();
-        Cell food = foodCells.get(foodIndex);
-        double newRad = food.cellRad / Math.sqrt(2);
-
-        double[] geo = computeDivisionGeometry(food, attacker);
-        double cellCX = geo[0], cellCY = geo[1];
-        double posAX = geo[2], posAY = geo[3];
-        double posBX = geo[4], posBY = geo[5];
-        double divAngle = geo[6];
-
-        game.getDivisionEffects().add(new DivisionEffect(
-            cellCX, cellCY, posAX, posAY, posBX, posBY, newRad, food.cellColor, divAngle));
-        foodCells.remove(foodIndex);
-
-        Cell halfA = new Cell((int) posAX, (int) posAY, newRad);
-        halfA.cellColor = food.cellColor;
-        halfA.spawnAlpha = 1f;
-        Cell halfB = new Cell((int) posBX, (int) posBY, newRad);
-        halfB.cellColor = food.cellColor;
-        halfB.spawnAlpha = 1f;
-        foodCells.add(halfA);
-        foodCells.add(halfB);
-
-        Sound.playDivisionSound();
-    }
-
-    private void divideEntityCell(Cell targetCell, Cell attacker, NPC targetNpc) {
-        double shield = (targetNpc != null) ? targetNpc.splitShieldFactor : GameConstants.SPLIT_SHIELD_BASE;
-        double newRad = targetCell.cellRad * shield;
-
-        double[] geo = computeDivisionGeometry(targetCell, attacker);
-        double cellCX = geo[0], cellCY = geo[1];
-        double posAX = geo[2], posAY = geo[3];
-        double posBX = geo[4], posBY = geo[5];
-        double divAngle = geo[6];
-
-        boolean aIsSafer = isPositionASafer(posAX, posAY, posBX, posBY, newRad, attacker);
-        double safeX  = aIsSafer ? posAX : posBX;
-        double safeY  = aIsSafer ? posAY : posBY;
-        double otherX = aIsSafer ? posBX : posAX;
-        double otherY = aIsSafer ? posBY : posAY;
-
-        game.getDivisionEffects().add(new DivisionEffect(
-            cellCX, cellCY, posAX, posAY, posBX, posBY, newRad, targetCell.cellColor, divAngle));
-
-        targetCell.cellRad = newRad;
-        targetCell.x = safeX - newRad;
-        targetCell.y = safeY - newRad;
-        if (targetNpc != null) {
-            targetNpc.updateSpeed();
-            targetNpc.score = GameConstants.scoreFromRadius(newRad);
-        }
-
-        Cell foodHalf = new Cell((int) otherX, (int) otherY, newRad);
-        foodHalf.cellColor = targetCell.cellColor;
-        foodHalf.spawnAlpha = 1f;
-        game.getFoodCells().add(foodHalf);
-
-        Sound.playDivisionSound();
-    }
-
-    private void dividePlayerCell(Cell attacker) {
-        Cell player = game.getPlayerCell();
-        double newRad = player.cellRad * game.splitShieldFactor;
-
-        double[] geo = computeDivisionGeometry(player, attacker);
-        double cellCX = geo[0], cellCY = geo[1];
-        double posAX = geo[2], posAY = geo[3];
-        double posBX = geo[4], posBY = geo[5];
-        double divAngle = geo[6];
-
-        boolean aIsSafer = isPositionASafer(posAX, posAY, posBX, posBY, newRad, attacker);
-        double safeX  = aIsSafer ? posAX : posBX;
-        double safeY  = aIsSafer ? posAY : posBY;
-        double otherX = aIsSafer ? posBX : posAX;
-        double otherY = aIsSafer ? posBY : posAY;
-
-        game.getDivisionEffects().add(new DivisionEffect(
-            cellCX, cellCY, posAX, posAY, posBX, posBY, newRad, player.cellColor, divAngle));
-
-        player.cellRad = newRad;
-        player.x = safeX - newRad;
-        player.y = safeY - newRad;
-        game.updatePlayerScore();
-
-        Cell foodHalf = new Cell((int) otherX, (int) otherY, newRad);
-        foodHalf.cellColor = player.cellColor;
-        foodHalf.spawnAlpha = 1f;
-        game.getFoodCells().add(foodHalf);
-
-        Sound.playDivisionSound();
-    }
-
-    private boolean isPositionASafer(double posAX, double posAY, double posBX, double posBY,
-                                      double newRadius, Cell excludeCell) {
-        double dangerA = 0;
-        double dangerB = 0;
-        double newArea = newRadius * newRadius;
-        Cell player = game.getPlayerCell();
-
-        if (excludeCell != player && !game.isGameOver()) {
-            double pArea = player.cellRad * player.cellRad;
-            if (pArea > newArea) {
-                double pCX = player.getCenterX();
-                double pCY = player.getCenterY();
-                dangerA += pArea / Math.max(1, GameConstants.distSq(posAX, posAY, pCX, pCY));
-                dangerB += pArea / Math.max(1, GameConstants.distSq(posBX, posBY, pCX, pCY));
-            }
-        }
-
-        for (NPC npc : game.getNPCList()) {
-            if (!npc.alive || npc.cell == excludeCell) continue;
-            double nArea = npc.cell.cellRad * npc.cell.cellRad;
-            if (nArea > newArea) {
-                double nCX = npc.cell.getCenterX();
-                double nCY = npc.cell.getCenterY();
-                dangerA += nArea / Math.max(1, GameConstants.distSq(posAX, posAY, nCX, nCY));
-                dangerB += nArea / Math.max(1, GameConstants.distSq(posBX, posBY, nCX, nCY));
-            }
-        }
-
-        return dangerA <= dangerB;
-    }
-
-    private void spawnDivisionContactEffect(Cell attacker, Cell target, int ticks) {
-        CopyOnWriteArrayList<ContactEffect> effects = game.getContactEffects();
-        if (ticks % 30 == 1 && effects.size() < GameConstants.MAX_DIVISION_EFFECTS) {
-            double midX = (attacker.getCenterX() + target.getCenterX()) / 2;
-            double midY = (attacker.getCenterY() + target.getCenterY()) / 2;
-            effects.add(new ContactEffect(midX, midY,
-                Math.min(attacker.cellRad, target.cellRad), target.cellColor, true));
-        }
     }
 }

@@ -10,7 +10,7 @@ A Java Swing Agar.io clone developed as an AIU Hackathon group project.
 
 **Game concept:** The player controls a circular cell. Eating smaller cells increases the player's size and score. The goal is to achieve the highest score.
 
-**Current status:** Functional game with intelligent NPC opponents (navigation AI with difficulty levels EASY/MEDIUM/HARD — flee bigger, chase smaller, roam when idle), smooth camera tracking, highscore, sound toggle, player color selection, fullscreen mode (default), configurable world dimensions, configurable cell density (default 200 cells/M px), toroidal world wrapping, three-tier food cell categories (Small/Medium/Large), smooth cell spawn animation, eat particle effects, division contact animations (with 3x radius separation distance), bounce contact effects, ambient menu music (A major pad) and evolving game ambient (pentatonic chord progression), modernized UI with styled buttons (hover/press animations) and styled dialogs (replacing JOptionPane), animated gradient menu backgrounds, fixed speed (3), no-overlap spawn, area-based growth (`r3 = sqrt(r1² + r2²)`), 10x-radius scoring, double-precision cell radii, live scoreboard with difficulty tags, game over screen with stats, in-game developer log, World Settings panel (pre-game configuration for player name, NPC count, world size, cell density), and persistent save/load system (up to 3 save files with rename and default restore).
+**Current status:** Functional game with intelligent NPC opponents (navigation AI with difficulty levels EASY/MEDIUM/HARD — flee bigger, chase smaller, roam when idle), smooth camera tracking, highscore, sound toggle, player color selection, fullscreen mode (default), configurable world dimensions, configurable cell density (default 200 cells/M px), toroidal world wrapping, three-tier food cell categories (Small/Medium/Large), smooth cell spawn animation, eat particle effects, shave-based erosion mechanics (overlap depth × speed = area loss, spawns food debris), bounce contact effects, ambient menu music (A major pad) and evolving game ambient (pentatonic chord progression), modernized UI with styled buttons (hover/press animations) and styled dialogs (replacing JOptionPane), animated gradient menu backgrounds, fixed speed (3), no-overlap spawn, area-based growth (`r3 = sqrt(r1² + r2²)`), 10x-radius scoring, double-precision cell radii, live scoreboard with difficulty tags, game over screen with stats, in-game developer log, World Settings panel (pre-game configuration for player name, NPC count, world size, cell density), persistent save/load system (up to 3 save files with rename and default restore), and roguelite upgrade system with 8 upgrade types (Speed Boost, Size Surge, Regeneration, Split Shield, Bountiful World, Big Feast, Magnet, Dodge) awarded at score thresholds — NPCs also receive upgrades automatically from an eligible subset.
 
 ---
 
@@ -165,19 +165,21 @@ Note: Assets (`.png`, `.wav`) live in `src/` alongside Java files. The build scr
 - **Easter egg:** score freeze, elapsed time preservation, coolMusic playback
 - **Developer log:** `toggleDevLog()` via Ctrl+I / Meta+I
 
-### `CollisionHandler.java` *(new — extracted from GamePanel)*
+### `CollisionHandler.java` *(refactored — shave-based erosion)*
 - Handles all collision detection and resolution for the game
 - **Constructor:** `CollisionHandler(GamePanel game)` — holds reference to game state
-- **`handleAllCollisions()`** — called once per game tick; runs all collision checks in order:
-  1. `handlePlayerFoodCollisions()` — player eats food cells
-  2. `handlePlayerNPCCollisions()` — player↔NPC eating and division
-  3. `handleNPCFoodCollisions()` — NPCs eat food cells
-  4. `handleNPCvsNPCCollisions()` — NPC↔NPC eating and division
-  5. `handleNPCvsPlayerCollisions()` — NPCs eat the player
-- **Division mechanics:** consolidated from 3 near-identical methods into shared `computeDivisionGeometry()` helper; computes split position, angle, and movement distance (`origRad * 3`)
+- **`update()`** — called once per game tick; runs all collision checks in order:
+  1. `checkPlayerEatsFood()` — player eats food cells (area ≥ 2x)
+  2. `checkPlayerEatsNPCs()` — player eats smaller NPCs
+  3. `checkNPCsEatFood()` — NPCs eat food cells
+  4. `checkNPCsEatNPCs()` — NPC↔NPC eating
+  5. `checkNPCsEatPlayer()` — NPCs eat the player
+  6. `updateShaving()` — continuous erosion for overlapping cells in the canDivide zone
+  7. `updateBounceEffects()` — visual/audio feedback for uneatable contacts
+- **Shave (erosion) mechanic:** replaces the old 200-tick sustained-contact division; when a slightly-larger cell overlaps a smaller one (`canDivide` zone: 1.01x–2x area), the smaller cell continuously loses area proportional to `overlapDepth × attackerSpeed × SHAVE_RATE`; lost area accumulates in `shaveAccumulators` HashMap and spawns as food cells at the contact point once `SHAVE_MIN_FOOD_AREA` is reached; Split Shield reduces damage via `splitShieldFactor` multiplier
+- **`shaveTarget()`** — unified shaving method for all entity types (player, NPC, food); calculates overlap depth, speed factor, shield reduction, erodes target radius, accumulates debris, spawns food and visual effects
 - **Bounce cooldown:** `BOUNCE_COOLDOWN_MS = 200` prevents sound/effect spam when cells touch repeatedly
-- **Effect spawning:** creates `EatEffect`, `ContactEffect`, `DivisionEffect` instances; respects `GameConstants.MAX_*_EFFECTS` limits
-- **Easter egg check:** detects when all NPCs are dead, triggers easter egg sequence
+- **Effect spawning:** creates `EatEffect`, `ContactEffect` instances; respects `GameConstants.MAX_*_EFFECTS` limits
 
 ### `GameRenderer.java` *(new — extracted from GamePanel)*
 - Handles all drawing/rendering for the game
@@ -209,7 +211,7 @@ Note: Assets (`.png`, `.wav`) live in `src/` alongside Java files. The build scr
   - `moodChangeChance` — chance per tick to become distracted (EASY 1%, MEDIUM 0.4%, HARD 0.1%)
   - `foodWeight` — food chase weight multiplier (EASY 0.8, MEDIUM 1.5, HARD 2.5)
   - `visionRange` — how far the NPC can see (EASY 300, MEDIUM 450, HARD 600)
-- **Fields:** `cell` (Cell entity), `name` (String), `score` (int), `alive` (boolean), `difficulty` (Difficulty)
+- **Fields:** `cell` (Cell entity), `name` (String), `score` (int), `alive` (boolean), `difficulty` (Difficulty), `upgradeManager` (UpgradeManager — per-NPC), `speedBonus` (double), `regenLevel` (int), `splitShieldFactor` (double), `upgradeCount` (int — display badge)
 - **Navigation AI:** `update(playerCell, npcList, foodList)` calls `navigate()` which scans nearby entities within `difficulty.visionRange`:
   - **Flee** from cells bigger than this NPC (player, other NPCs) — stronger force when closer (weight 3.0); fleeing always works even when distracted
   - **Chase** cells smaller than this NPC — player (weight 2.5), other NPCs (weight 2.0), food cells (weight `difficulty.foodWeight`); chasing is disabled when NPC is in "distracted" mood
@@ -417,6 +419,19 @@ playerCell.cellRad = newRad;
 // Score = 10x radius: hud.score = (int) Math.ceil(playerCell.cellRad * 10);
 ```
 
+### Shave (Erosion) Mechanic
+```java
+// When a larger cell overlaps a smaller one in the canDivide zone (1.01x–2x area):
+double overlapDepth = (attacker.cellRad + target.cellRad) - distance;
+double speedFactor = Math.max(0.5, attackerSpeed / DEFAULT_SPEED);
+double shavedArea = overlapDepth * speedFactor * SHAVE_RATE * splitShieldFactor;
+// Target loses that area:
+double newArea = targetArea - shavedArea;
+target.cellRad = Math.sqrt(newArea);
+// Accumulated shaved area spawns as food at the contact point:
+if (accumulated >= SHAVE_MIN_FOOD_AREA) { spawnFoodAtContact(); }
+```
+
 ### Fixed Speed
 ```java
 // Applied every tick in runGameThread (unless devSpeedOverride is true)
@@ -485,12 +500,17 @@ public static final Color[] CELL_COLORS = {BLACK, BLUE, CYAN, DARK_GRAY, GRAY, G
 29. **Menu panels use animated backgrounds** — `MainPanel` and `OptionsPanel` use Swing `Timer` at 30ms for gradient animation; timer must be stopped when navigating away.
 30. **Use `StyledDialog` instead of `JOptionPane`** — all user-facing dialogs (input, confirm, message) must use `StyledDialog` static methods for consistent dark-themed UI.
 31. **NPC difficulty is assigned round-robin** — when spawning NPCs, cycle EASY → MEDIUM → HARD equally; difficulty affects error rate, vision, jitter, mood, and food aggression.
-32. **Division distance is 3x original radius** — `moveDist = origRad * 3` in all divide methods, giving divided cells room to escape the divider.
+32. **Shave mechanic replaces old division** — cells in the canDivide zone (1.01x–2x area) continuously erode the smaller cell's area based on overlap depth and attacker speed; lost area accumulates and spawns as food debris; `splitShieldFactor` (default 1.0) multiplies the shave damage (lower = less damage via Split Shield upgrades).
 33. **Game ambient sound is an evolving chord progression** — `playGameAmbient()` cycles through pentatonic chords (C, D, E patterns) with crossfading; distinct from the menu's static A major pad.
 34. **Pre-game settings go through WorldSettingsPanel** — START button on MainPanel navigates to WorldSettingsPanel; player configures name, NPC count, world size, and cell density before starting; BACK button cancels without starting a game.
 35. **Settings persistence via GameSettings** — save/load settings to `.cfg` files in `saves/` directory; max 3 save files; supports rename, overwrite, and restore-to-defaults; `applyToGame()` writes values to game statics, `readFromGame()` reads them.
 36. **Maximum 3 save files** — enforced in `WorldSettingsPanel` save button; when limit reached, user must overwrite an existing save.
 37. **Easter egg freezes player score** — `easterEggActive` flag prevents player from eating food or NPCs during the easter egg; `finalElapsedTime` preserves the actual game time before the easter egg timer reset.
+38. **NPCs receive upgrades automatically** — each NPC has its own `UpgradeManager` instance; when an NPC crosses a score threshold, a random upgrade from the NPC-eligible pool (Speed Boost, Size Surge, Regeneration, Split Shield) is applied instantly with no UI; `upgradeCount` drives the gold star badge drawn by `GameRenderer`.
+39. **Upgrade buttons must not steal focus** — `StyledButton` instances in the upgrade selection overlay must have `setFocusable(false)` to prevent them from stealing keyboard focus from `GamePanel`; after dismissal, `requestFocusInWindow()` must be called to restore key input.
+40. **Magnet is player-only** — food cells within `magnetRadius` are pulled toward the player each tick; NPCs do not get Magnet (their navigation AI already steers toward food).
+41. **Regeneration applies to both player and NPCs** — each tick, `cellRad += REGEN_RATE_PER_LEVEL * regenLevel` for any entity with `regenLevel > 0`; applies in `GamePanel.applyRegen()`.
+42. **Split Shield reduces shave damage** — `splitShieldFactor` starts at 1.0 (full damage) and decreases by `SPLIT_SHIELD_PER_LEVEL` per upgrade toward `SPLIT_SHIELD_MIN` (0.25); the shave mechanic multiplies area loss by this factor.
 
 ---
 
