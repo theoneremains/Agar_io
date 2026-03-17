@@ -98,6 +98,17 @@ public class Sound {
         });
     }
 
+    /** Quick rising whoosh (80ms) played when the player performs a Dodge dash */
+    public static void playDodgeSound() {
+        if (!soundEnabled) return;
+        ToneGenerator.playTone(80, (i, total) -> {
+            float progress = (float) i / total;
+            float freq = 150f + 700f * progress;
+            float amp = 0.55f * (1f - progress * 0.4f);
+            return amp * ToneGenerator.sine(freq, i);
+        });
+    }
+
     /** Crisp descending click tone (60ms) for UI button interactions */
     public static void playClickSound() {
         if (!soundEnabled) return;

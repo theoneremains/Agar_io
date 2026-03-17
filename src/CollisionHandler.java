@@ -30,10 +30,8 @@ public class CollisionHandler {
     public void update() {
         if (game.isGameOver()) return;
 
-        if (!game.isEasterEggActive()) {
-            checkPlayerEatsFood();
-            checkPlayerEatsNPCs();
-        }
+        checkPlayerEatsFood();
+        checkPlayerEatsNPCs();
         checkNPCsEatFood();
         checkNPCsEatNPCs();
         checkNPCsEatPlayer();
