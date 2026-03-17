@@ -1,6 +1,7 @@
 import java.awt.*;
 import java.awt.geom.AffineTransform;
 import java.util.List;
+import java.awt.BasicStroke;
 
 /**
  * GameRenderer : Handles all drawing/rendering for the game.
@@ -78,7 +79,26 @@ public class GameRenderer {
             int npcDrawRad = (int) Math.round(npc.cell.cellRad);
             npc.cell.drawCell(g2d, npcDrawRad);
             drawCellName(g2d, npc.cell, npc.name, npcDrawRad);
+            if (npc.upgradeCount > 0) {
+                drawNPCUpgradeStar(g2d, npc, npcDrawRad);
+            }
         }
+    }
+
+    /**
+     * Draws a small gold star badge with upgrade count on upgraded NPCs.
+     * Positioned at the top-right of the cell.
+     */
+    private void drawNPCUpgradeStar(Graphics2D g2d, NPC npc, int drawRad) {
+        int badgeX = (int) Math.round(npc.cell.getCenterX()) + drawRad - 6;
+        int badgeY = (int) Math.round(npc.cell.getCenterY()) - drawRad + 6;
+        g2d.setColor(new Color(255, 215, 0, 220));
+        g2d.fillOval(badgeX - 6, badgeY - 6, 12, 12);
+        g2d.setColor(Color.BLACK);
+        g2d.setFont(new Font(GameConstants.FONT_FAMILY, Font.BOLD, 8));
+        FontMetrics fm = g2d.getFontMetrics();
+        String label = "\u2605" + npc.upgradeCount; // ★N
+        g2d.drawString(label, badgeX - fm.stringWidth(label) / 2, badgeY + fm.getAscent() / 2 - 1);
     }
 
     private void drawPlayer(Graphics2D g2d) {
@@ -86,8 +106,31 @@ public class GameRenderer {
 
         Cell player = game.getPlayerCell();
         int playerDrawRad = (int) Math.round(player.cellRad);
+
+        // Magnet aura — dashed circle pulsing at the pull radius
+        if (game.magnetLevel > 0) {
+            drawMagnetAura(g2d, player);
+        }
+
         player.drawCell(g2d, playerDrawRad);
         drawCellName(g2d, player, GamePanel.playerName, playerDrawRad);
+    }
+
+    /**
+     * Draws a pulsing dashed circle at the player's magnet radius (world space).
+     */
+    private void drawMagnetAura(Graphics2D g2d, Cell player) {
+        double pulseAlpha = 0.18 + 0.10 * Math.sin(System.currentTimeMillis() / 350.0);
+        int alpha = Math.max(10, Math.min(255, (int) (pulseAlpha * 255)));
+        g2d.setColor(new Color(80, 200, 255, alpha));
+        Stroke saved = g2d.getStroke();
+        g2d.setStroke(new BasicStroke(2.0f, BasicStroke.CAP_ROUND, BasicStroke.JOIN_ROUND,
+            0, new float[]{10, 8}, (float) (System.currentTimeMillis() / 80.0 % 18)));
+        int mr = (int) game.magnetRadius;
+        int cx = (int) Math.round(player.getCenterX());
+        int cy = (int) Math.round(player.getCenterY());
+        g2d.drawOval(cx - mr, cy - mr, mr * 2, mr * 2);
+        g2d.setStroke(saved);
     }
 
     private void drawCellName(Graphics2D g2d, Cell cell, String name, int drawRad) {
@@ -125,19 +168,29 @@ public class GameRenderer {
         long displayElapsed = game.getDisplayElapsedTime();
         g2d.drawString("Elapsed Time " + displayElapsed / 1000, 490, 20);
 
-        // Dodge indicator (only shown once the player has the Dodge upgrade)
+        // Active upgrade indicators (bottom-left)
+        int indicatorX = 10;
         if (game.getUpgradeManager().hasDodge()) {
-            drawDodgeIndicator(g2d);
+            drawDodgeIndicator(g2d, indicatorX);
+            indicatorX += 130;
+        }
+        if (game.magnetLevel > 0) {
+            drawSimpleIndicator(g2d, indicatorX, "\u25CE Magnet x" + game.magnetLevel,
+                new Color(80, 200, 255));
+            indicatorX += 130;
+        }
+        if (game.regenLevel > 0) {
+            drawSimpleIndicator(g2d, indicatorX, "\u2665 Regen x" + game.regenLevel,
+                new Color(100, 220, 130));
         }
     }
 
     /**
-     * Draws a small DODGE status indicator in the bottom-left corner.
+     * Draws a small DODGE status indicator.
      * Shows "DODGE [READY]" in green or "DODGE [cooldown]" in gray with a
      * depleting cooldown bar.
      */
-    private void drawDodgeIndicator(Graphics2D g2d) {
-        int x = 10;
+    private void drawDodgeIndicator(Graphics2D g2d, int x) {
         int y = MainClass.SCREEN_HEIGHT - 40;
         int barW = 100;
         int barH = 8;
@@ -166,6 +219,14 @@ public class GameRenderer {
             g2d.setColor(new Color(80, 230, 80));
             g2d.drawString("SPACE", x + barW + 6, y + 13);
         }
+    }
+
+    /** Draws a simple colored label in the bottom-left HUD area at the given x offset. */
+    private void drawSimpleIndicator(Graphics2D g2d, int x, String label, Color color) {
+        int y = MainClass.SCREEN_HEIGHT - 40;
+        g2d.setFont(new Font(GameConstants.FONT_FAMILY, Font.BOLD, 13));
+        g2d.setColor(color);
+        g2d.drawString(label, x, y);
     }
 
     private void drawScoreboard(Graphics2D g2d) {

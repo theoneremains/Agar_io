@@ -57,6 +57,26 @@ public class NPC {
     /** Difficulty level of this NPC */
     public final Difficulty difficulty;
 
+    // ── Roguelite Upgrade State ──────────────────────────────────────────
+
+    /** Each NPC has its own upgrade manager tracking score thresholds */
+    public final UpgradeManager upgradeManager = new UpgradeManager();
+
+    /** Bonus speed added by Speed Boost upgrades */
+    public double speedBonus = 0.0;
+
+    /** Number of Regeneration upgrade levels received */
+    public int regenLevel = 0;
+
+    /**
+     * Factor of radius retained when this NPC is divided.
+     * Default is {@code 1/√2} (~0.707); increases with Split Shield upgrades.
+     */
+    public double splitShieldFactor = GameConstants.SPLIT_SHIELD_BASE;
+
+    /** Total upgrade count — used for the upgrade star indicator in the renderer */
+    public int upgradeCount = 0;
+
     // Movement direction flags (set by navigation AI)
     private boolean right, left, up, down;
 
@@ -115,10 +135,10 @@ public class NPC {
         randomizeDirection();
     }
 
-    /** Updates the NPC's speed — fixed at DEFAULT_SPEED (no size scaling) */
+    /** Updates the NPC's speed — base speed plus any Speed Boost upgrade bonus */
     public void updateSpeed() {
-        cell.speedX = DEFAULT_SPEED;
-        cell.speedY = DEFAULT_SPEED;
+        cell.speedX = DEFAULT_SPEED + speedBonus;
+        cell.speedY = DEFAULT_SPEED + speedBonus;
     }
 
     /** Randomizes movement direction (fallback when no threats or prey nearby) */

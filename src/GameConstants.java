@@ -119,6 +119,21 @@ public final class GameConstants {
     public static final int UPGRADE_CARD_GAP    = 30;
     public static final int UPGRADE_BTN_HEIGHT  = 50;
     public static final int UPGRADE_BTN_MARGIN  = 10;
+    // ── Magnet upgrade ───────────────────────────────────────────────────
+    /** World-space radius added per Magnet upgrade level */
+    public static final double MAGNET_RADIUS_PER_LEVEL = 160.0;
+    /** Pixels per tick that attracted food cells move toward the player */
+    public static final double MAGNET_PULL_SPEED = 1.8;
+    // ── Regeneration upgrade ─────────────────────────────────────────────
+    /** Radius recovered per tick per Regeneration level */
+    public static final double REGEN_RATE_PER_LEVEL = 0.0004;
+    // ── Split Shield upgrade ─────────────────────────────────────────────
+    /** Base division factor (radius kept) when no Split Shield — equals 1/√2 */
+    public static final double SPLIT_SHIELD_BASE   = 0.7071067811865476; // 1/sqrt(2)
+    /** Factor added per Split Shield level */
+    public static final double SPLIT_SHIELD_PER_LEVEL = 0.065;
+    /** Maximum factor (can never keep more than this fraction of radius) */
+    public static final double SPLIT_SHIELD_MAX    = 0.93;
 
     // ── Utility Methods ──────────────────────────────────────────────────
 

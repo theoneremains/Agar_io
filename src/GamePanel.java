@@ -115,6 +115,21 @@ public class GamePanel extends JPanel implements KeyListener {
     /** Countdown ticks remaining before Dodge can be used again (0 = ready) */
     private int dodgeCooldownTicks = 0;
 
+    /** Number of Magnet upgrade levels (determines pull radius) */
+    public int magnetLevel = 0;
+
+    /** World-space radius in which food cells are attracted to the player */
+    public double magnetRadius = 0.0;
+
+    /** Number of Regeneration upgrade levels */
+    public int regenLevel = 0;
+
+    /**
+     * Factor of radius retained when the player is divided.
+     * Default equals {@code 1/√2}; increases with Split Shield upgrades.
+     */
+    public double splitShieldFactor = GameConstants.SPLIT_SHIELD_BASE;
+
     // ── Subsystems ───────────────────────────────────────────────────────
 
     private final CollisionHandler collisionHandler;
@@ -371,6 +386,11 @@ public class GamePanel extends JPanel implements KeyListener {
                     // Update visual effects
                     updateEffects();
 
+                    // Roguelite passive effects
+                    applyMagnet();
+                    applyRegen();
+                    checkNPCUpgrades();
+
                     // Check upgrade threshold
                     upgradeManager.checkScore(hud.score);
                     if (upgradeManager.isUpgradeReady() && !upgradeSelecting) {
@@ -389,6 +409,57 @@ public class GamePanel extends JPanel implements KeyListener {
         });
         thread.setDaemon(true);
         thread.start();
+    }
+
+    // ── Roguelite Passive Effects ────────────────────────────────────────
+
+    /**
+     * Attracts food cells within {@code magnetRadius} toward the player each tick.
+     * Does nothing when magnetLevel is 0.
+     */
+    private void applyMagnet() {
+        if (magnetRadius <= 0) return;
+        double pCX = playerCell.getCenterX();
+        double pCY = playerCell.getCenterY();
+        double radSq = magnetRadius * magnetRadius;
+        for (Cell food : foodCells) {
+            double dx = pCX - food.getCenterX();
+            double dy = pCY - food.getCenterY();
+            double distSq = dx * dx + dy * dy;
+            if (distSq < radSq && distSq > 0.01) {
+                double dist = Math.sqrt(distSq);
+                food.x += (dx / dist) * GameConstants.MAGNET_PULL_SPEED;
+                food.y += (dy / dist) * GameConstants.MAGNET_PULL_SPEED;
+            }
+        }
+    }
+
+    /**
+     * Applies regeneration to the player and any NPCs that have the Regeneration upgrade.
+     * Each level adds a small fixed radius per tick.
+     */
+    private void applyRegen() {
+        if (regenLevel > 0) {
+            playerCell.cellRad += GameConstants.REGEN_RATE_PER_LEVEL * regenLevel;
+            updatePlayerScore();
+        }
+        for (NPC npc : npcList) {
+            if (npc.alive && npc.regenLevel > 0) {
+                npc.cell.cellRad += GameConstants.REGEN_RATE_PER_LEVEL * npc.regenLevel;
+            }
+        }
+    }
+
+    /**
+     * Checks every living NPC's score against upgrade thresholds and auto-applies
+     * a random NPC-eligible upgrade when a threshold is crossed.
+     */
+    private void checkNPCUpgrades() {
+        for (NPC npc : npcList) {
+            if (npc.alive) {
+                npc.upgradeManager.checkAndAutoApplyForNPC(npc.score, npc);
+            }
+        }
     }
 
     // ── Dodge Mechanic ───────────────────────────────────────────────────

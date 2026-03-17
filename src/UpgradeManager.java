@@ -1,17 +1,38 @@
 import java.util.*;
 
 /**
- * UpgradeManager : Manages roguelite upgrade progression throughout a game session.
- * Watches the player's score against a series of thresholds; when a threshold is
- * crossed it randomly selects {@code UPGRADE_CHOICES} options for the player to
- * choose from and applies the selected upgrade to the game state.
+ * UpgradeManager : Manages roguelite upgrade progression for a single entity
+ * (the player or one NPC).
  *
- * Adding a new upgrade requires only: extending {@link UpgradeType} and adding a
- * case to {@link #applyUpgrade}.
+ * <p>For the <strong>player</strong>: watches score thresholds, shows 3 random
+ * choices via {@link GamePanel#showUpgradeSelection()}, and applies the chosen
+ * upgrade to the live game state.
+ *
+ * <p>For <strong>NPCs</strong>: same threshold tracking, but upgrades are applied
+ * automatically and silently via {@link #checkAndAutoApplyForNPC}.
+ *
+ * <p>Adding a new upgrade requires only:
+ * <ol>
+ *   <li>Extend {@link UpgradeType}.</li>
+ *   <li>Add a {@code case} to {@link #applyUpgrade} (player) and, if applicable
+ *       to NPCs, to {@link #applyNPCUpgrade}.</li>
+ *   <li>If the upgrade is NPC-eligible, add the type to {@link #NPC_ELIGIBLE}.</li>
+ * </ol>
  *
  * @author Mert Efe Sevim
  */
 public class UpgradeManager {
+
+    /**
+     * Upgrade types that NPCs may receive automatically.
+     * Excludes player-only perks (Dodge, Magnet, Density/Divergency world changes).
+     */
+    private static final UpgradeType[] NPC_ELIGIBLE = {
+        UpgradeType.SPEED_BOOST,
+        UpgradeType.SIZE_BOOST,
+        UpgradeType.REGENERATION,
+        UpgradeType.SPLIT_SHIELD,
+    };
 
     private int nextThresholdIndex = 0;
     private boolean upgradeReady = false;
@@ -19,12 +40,11 @@ public class UpgradeManager {
     private boolean dodgeUnlocked = false;
     private final Random random = new Random();
 
-    // ── Score Checking ───────────────────────────────────────────────────
+    // ── Player Score Checking ────────────────────────────────────────────
 
     /**
      * Called every game tick to check whether the player has crossed the next
-     * upgrade threshold.  If the upgrade flag is already set (waiting for the
-     * player to choose) this method is a no-op.
+     * upgrade threshold.  No-op when an upgrade choice is already pending.
      *
      * @param score current player score
      */
@@ -35,13 +55,64 @@ public class UpgradeManager {
         if (score >= thresholds[nextThresholdIndex]) {
             nextThresholdIndex++;
             upgradeReady = true;
-            currentChoices = pickChoices();
+            currentChoices = pickPlayerChoices();
         }
     }
 
-    // ── Accessors ────────────────────────────────────────────────────────
+    // ── NPC Auto-Upgrade ─────────────────────────────────────────────────
 
-    /** @return true when an upgrade choice is waiting to be selected */
+    /**
+     * Checks the NPC's score against thresholds.  If a threshold is crossed,
+     * a random NPC-eligible upgrade is applied immediately with no UI.
+     *
+     * @param score current NPC score
+     * @param npc   the NPC to upgrade
+     */
+    public void checkAndAutoApplyForNPC(int score, NPC npc) {
+        int[] thresholds = GameConstants.UPGRADE_SCORE_THRESHOLDS;
+        if (nextThresholdIndex >= thresholds.length) return;
+        if (score >= thresholds[nextThresholdIndex]) {
+            nextThresholdIndex++;
+            List<UpgradeType> choices = pickNPCChoices();
+            if (!choices.isEmpty()) {
+                applyNPCUpgrade(choices.get(random.nextInt(choices.size())), npc);
+            }
+        }
+    }
+
+    /**
+     * Applies an upgrade directly to an NPC's state.
+     * Only NPC-eligible upgrade types produce an effect here.
+     *
+     * @param type the upgrade to apply
+     * @param npc  the target NPC
+     */
+    public void applyNPCUpgrade(UpgradeType type, NPC npc) {
+        switch (type) {
+            case SPEED_BOOST:
+                npc.speedBonus += GameConstants.SPEED_UPGRADE_AMOUNT;
+                break;
+            case SIZE_BOOST:
+                npc.cell.cellRad = GameConstants.growRadius(
+                    npc.cell.cellRad, GameConstants.SIZE_UPGRADE_AMOUNT);
+                npc.score = GameConstants.scoreFromRadius(npc.cell.cellRad);
+                break;
+            case REGENERATION:
+                npc.regenLevel++;
+                break;
+            case SPLIT_SHIELD:
+                npc.splitShieldFactor = Math.min(GameConstants.SPLIT_SHIELD_MAX,
+                    npc.splitShieldFactor + GameConstants.SPLIT_SHIELD_PER_LEVEL);
+                break;
+            default:
+                break; // player-only upgrades are silently ignored for NPCs
+        }
+        npc.upgradeCount++;
+    }
+
+    // ── Player Accessors ─────────────────────────────────────────────────
+
+    /** @return true when an upgrade choice is waiting to be selected by the player */
     public boolean isUpgradeReady() { return upgradeReady; }
 
     /** @return the list of upgrade types the player may currently choose from */
@@ -50,14 +121,14 @@ public class UpgradeManager {
     /** @return true once the player has selected the Dodge upgrade */
     public boolean hasDodge() { return dodgeUnlocked; }
 
-    // ── Apply Upgrade ────────────────────────────────────────────────────
+    // ── Apply Player Upgrade ─────────────────────────────────────────────
 
     /**
-     * Applies the chosen upgrade to the live game state and clears the pending
-     * upgrade flag so normal gameplay resumes.
+     * Applies the chosen upgrade to the live player-side game state and clears
+     * the pending upgrade flag so normal gameplay resumes.
      *
      * @param type the upgrade chosen by the player
-     * @param game the active GamePanel (used to access/modify player state)
+     * @param game the active GamePanel
      */
     public void applyUpgrade(UpgradeType type, GamePanel game) {
         upgradeReady = false;
@@ -68,8 +139,8 @@ public class UpgradeManager {
                 game.playerSpeedBonus += GameConstants.SPEED_UPGRADE_AMOUNT;
                 break;
             case SIZE_BOOST:
-                Cell player = game.getPlayerCell();
-                player.cellRad = GameConstants.growRadius(player.cellRad, GameConstants.SIZE_UPGRADE_AMOUNT);
+                game.getPlayerCell().cellRad = GameConstants.growRadius(
+                    game.getPlayerCell().cellRad, GameConstants.SIZE_UPGRADE_AMOUNT);
                 game.updatePlayerScore();
                 break;
             case DENSITY_BOOST:
@@ -81,6 +152,17 @@ public class UpgradeManager {
                 game.foodMediumChance = Math.min(0.45,
                     game.foodMediumChance + GameConstants.DIVERGENCY_MEDIUM_SHIFT);
                 break;
+            case MAGNET:
+                game.magnetLevel++;
+                game.magnetRadius += GameConstants.MAGNET_RADIUS_PER_LEVEL;
+                break;
+            case REGENERATION:
+                game.regenLevel++;
+                break;
+            case SPLIT_SHIELD:
+                game.splitShieldFactor = Math.min(GameConstants.SPLIT_SHIELD_MAX,
+                    game.splitShieldFactor + GameConstants.SPLIT_SHIELD_PER_LEVEL);
+                break;
             case DODGE:
                 dodgeUnlocked = true;
                 break;
@@ -90,15 +172,23 @@ public class UpgradeManager {
     // ── Internal Helpers ─────────────────────────────────────────────────
 
     /**
-     * Randomly picks {@code UPGRADE_CHOICES} upgrade types from the available pool.
-     * DODGE is excluded from the pool once it has been unlocked.
+     * Picks {@code UPGRADE_CHOICES} random player-eligible upgrades.
+     * DODGE is excluded once already unlocked.
      */
-    private List<UpgradeType> pickChoices() {
+    private List<UpgradeType> pickPlayerChoices() {
         List<UpgradeType> pool = new ArrayList<>();
         for (UpgradeType type : UpgradeType.values()) {
             if (type == UpgradeType.DODGE && dodgeUnlocked) continue;
             pool.add(type);
         }
+        Collections.shuffle(pool, random);
+        int count = Math.min(GameConstants.UPGRADE_CHOICES, pool.size());
+        return new ArrayList<>(pool.subList(0, count));
+    }
+
+    /** Picks a random list of NPC-eligible upgrades (up to UPGRADE_CHOICES). */
+    private List<UpgradeType> pickNPCChoices() {
+        List<UpgradeType> pool = new ArrayList<>(Arrays.asList(NPC_ELIGIBLE));
         Collections.shuffle(pool, random);
         int count = Math.min(GameConstants.UPGRADE_CHOICES, pool.size());
         return new ArrayList<>(pool.subList(0, count));
