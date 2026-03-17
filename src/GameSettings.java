@@ -11,20 +11,20 @@ import java.util.*;
 public class GameSettings {
 
     /** Maximum number of save files allowed */
-    public static final int MAX_SAVES = 3;
+    public static final int MAX_SAVES = GameConstants.MAX_SAVE_FILES;
 
     /** Directory where save files are stored */
-    private static final String SAVES_DIR = "saves";
+    private static final String SAVES_DIR = GameConstants.SAVES_DIR;
 
     /** File extension for save files */
-    private static final String SAVE_EXT = ".cfg";
+    private static final String SAVE_EXT = GameConstants.SAVE_EXT;
 
     // Default values
     public static final String DEFAULT_PLAYER_NAME = "Player";
-    public static final int DEFAULT_NPC_COUNT = 3;
-    public static final int DEFAULT_WORLD_WIDTH = 3840;
-    public static final int DEFAULT_WORLD_HEIGHT = 2160;
-    public static final double DEFAULT_CELL_DENSITY = 200.0;
+    public static final int DEFAULT_NPC_COUNT = GameConstants.MIN_NPC_COUNT;
+    public static final int DEFAULT_WORLD_WIDTH = GameConstants.DEFAULT_WORLD_WIDTH;
+    public static final int DEFAULT_WORLD_HEIGHT = GameConstants.DEFAULT_WORLD_HEIGHT;
+    public static final double DEFAULT_CELL_DENSITY = GameConstants.DEFAULT_CELL_DENSITY;
     public static final boolean DEFAULT_SOUND_ENABLED = true;
     public static final boolean DEFAULT_FULLSCREEN = true;
     public static final int DEFAULT_PLAYER_COLOR_INDEX = 0;
@@ -162,8 +162,8 @@ public class GameSettings {
      */
     public void applyToGame() {
         GamePanel.playerName = playerName;
-        GamePanel.playerColor = GamePanel.colors[playerColorIndex % GamePanel.colors.length];
-        GamePanel.playerColorIndex = playerColorIndex % GamePanel.colors.length;
+        GamePanel.playerColor = GameConstants.CELL_COLORS[playerColorIndex % GameConstants.CELL_COLORS.length];
+        GamePanel.playerColorIndex = playerColorIndex % GameConstants.CELL_COLORS.length;
         GamePanel.cellDensity = cellDensity;
         MainClass.WORLD_WIDTH = worldWidth;
         MainClass.WORLD_HEIGHT = worldHeight;

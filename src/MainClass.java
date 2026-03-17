@@ -2,22 +2,23 @@ import javax.swing.*;
 import java.awt.*;
 
 /**
- * MainClass class : Holds the width and height of the screen and the game world, creates the frame for the game
- * Has access to the panels, and all panels are connected to this frame
- * Supports fullscreen mode (default) with configurable world dimensions
- * Run the game through here
+ * MainClass : Top-level JFrame window and entry point for the game.
+ * Holds global screen/world dimension state and references to all panels.
+ * Supports fullscreen mode (default) with configurable world dimensions.
  * @author Kamil Yunus Özkaya
  */
-public class MainClass extends JFrame
-{
-    public static int SCREEN_WIDTH  = 1280;
-    public static int SCREEN_HEIGHT = 720;
+public class MainClass extends JFrame {
 
-    public static int WORLD_WIDTH  = 3840;
-    public static int WORLD_HEIGHT = 2160;
+    public static int SCREEN_WIDTH  = GameConstants.DEFAULT_SCREEN_WIDTH;
+    public static int SCREEN_HEIGHT = GameConstants.DEFAULT_SCREEN_HEIGHT;
 
-    public static int BUTTON_WIDTH  = 200;
-    public static int BUTTON_HEIGHT = 50;
+    public static int WORLD_WIDTH  = GameConstants.DEFAULT_WORLD_WIDTH;
+    public static int WORLD_HEIGHT = GameConstants.DEFAULT_WORLD_HEIGHT;
+
+    /** @deprecated Use {@link GameConstants#BUTTON_WIDTH} */
+    public static int BUTTON_WIDTH  = GameConstants.BUTTON_WIDTH;
+    /** @deprecated Use {@link GameConstants#BUTTON_HEIGHT} */
+    public static int BUTTON_HEIGHT = GameConstants.BUTTON_HEIGHT;
 
     /** Whether the game is running in fullscreen mode */
     public static boolean fullscreen = true;
@@ -27,11 +28,9 @@ public class MainClass extends JFrame
     public GamePanel gamePanel;
     public WorldSettingsPanel worldSettingsPanel;
 
-    public MainClass()
-    {
-        this.setTitle("Java Project");
+    public MainClass() {
+        this.setTitle("Agar.io - Java Swing Clone");
 
-        // Default to fullscreen: use screen dimensions
         if (fullscreen) {
             applyFullscreen();
         } else {
@@ -43,9 +42,7 @@ public class MainClass extends JFrame
         this.setDefaultCloseOperation(WindowConstants.EXIT_ON_CLOSE);
 
         mainPanel = new MainPanel(this);
-
         this.getContentPane().add(mainPanel);
-
         this.setVisible(true);
     }
 
@@ -65,12 +62,10 @@ public class MainClass extends JFrame
         this.setVisible(true);
     }
 
-    /**
-     * Applies windowed mode with the given screen dimensions.
-     */
+    /** Applies windowed mode at 1280×720 */
     public void applyWindowed() {
-        SCREEN_WIDTH  = 1280;
-        SCREEN_HEIGHT = 720;
+        SCREEN_WIDTH  = GameConstants.DEFAULT_SCREEN_WIDTH;
+        SCREEN_HEIGHT = GameConstants.DEFAULT_SCREEN_HEIGHT;
         this.dispose();
         this.setUndecorated(false);
         this.setSize(SCREEN_WIDTH, SCREEN_HEIGHT);
@@ -80,9 +75,7 @@ public class MainClass extends JFrame
         this.setVisible(true);
     }
 
-    /**
-     * Toggles between fullscreen and windowed mode.
-     */
+    /** Toggles between fullscreen and windowed mode */
     public void toggleFullscreen() {
         fullscreen = !fullscreen;
         if (fullscreen) {
@@ -92,9 +85,7 @@ public class MainClass extends JFrame
         }
     }
 
-
-    public static void main(String [] args)
-    {
+    public static void main(String[] args) {
         SwingUtilities.invokeLater(MainClass::new);
     }
 }

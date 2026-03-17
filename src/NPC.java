@@ -65,8 +65,8 @@ public class NPC {
 
     private static final Random rng = new Random();
 
-    // Speed constants — fixed speed of 3 (no longer scales with size)
-    private static final double DEFAULT_SPEED = 3;
+    // Speed constants
+    private static final double DEFAULT_SPEED = GameConstants.DEFAULT_SPEED;
 
     /** When true the NPC is in a "distracted" phase and will roam instead of chasing */
     private boolean distracted = false;
@@ -98,7 +98,7 @@ public class NPC {
         this.difficulty = difficulty;
         this.cell = new Cell(cx, cy, radius);
         this.cell.spawnAlpha = 1f;
-        this.cell.cellColor = GamePanel.colors[rng.nextInt(GamePanel.colors.length)];
+        this.cell.cellColor = GameConstants.CELL_COLORS[rng.nextInt(GameConstants.CELL_COLORS.length)];
 
         // Pick a unique name
         String picked;
@@ -320,8 +320,8 @@ public class NPC {
      * @param eatenRad radius of the eaten cell
      */
     public void grow(double eatenRad) {
-        double newRad = Math.sqrt(cell.cellRad * cell.cellRad + eatenRad * eatenRad);
+        double newRad = GameConstants.growRadius(cell.cellRad, eatenRad);
         cell.cellRad = newRad;
-        score = (int) Math.ceil(newRad * 10);
+        score = GameConstants.scoreFromRadius(newRad);
     }
 }
