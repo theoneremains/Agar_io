@@ -172,7 +172,7 @@ public class GameRenderer {
         int indicatorX = 10;
         if (game.getUpgradeManager().hasDodge()) {
             drawDodgeIndicator(g2d, indicatorX);
-            indicatorX += 130;
+            indicatorX += 50;  // circle diameter (36) + gap
         }
         if (game.magnetLevel > 0) {
             drawSimpleIndicator(g2d, indicatorX, "\u25CE Magnet x" + game.magnetLevel,
@@ -208,7 +208,7 @@ public class GameRenderer {
             UpgradeType type = entry.getKey();
             int count = entry.getValue();
 
-            String label = upgradeShortName(type) + (count > 1 ? " x" + count : "");
+            String label = upgradeShortName(type) + " Lv." + count;
             FontMetrics fm = g2d.getFontMetrics();
             int badgeW = fm.stringWidth(label) + badgePad * 2;
 
@@ -262,38 +262,53 @@ public class GameRenderer {
     }
 
     /**
-     * Draws a small DODGE status indicator.
-     * Shows "DODGE [READY]" in green or "DODGE [cooldown]" in gray with a
-     * depleting cooldown bar.
+     * Draws the DODGE status indicator as a clock-like circular arc.
+     * A filled arc sweeps clockwise from the top as the cooldown expires.
+     * When ready the circle glows green; during cooldown it fills with blue.
+     * Returns the pixel width consumed so callers can advance indicatorX.
      */
     private void drawDodgeIndicator(Graphics2D g2d, int x) {
-        int y = MainClass.SCREEN_HEIGHT - 40;
-        int barW = 100;
-        int barH = 8;
+        final int r  = 18;  // circle radius
+        final int cx = x + r;
+        final int cy = MainClass.SCREEN_HEIGHT - 45;
 
-        int cooldown = game.getDodgeCooldownTicks();
-        boolean ready = cooldown <= 0;
+        int     cooldown = game.getDodgeCooldownTicks();
+        boolean ready    = cooldown <= 0;
 
-        // Label
-        g2d.setFont(new Font(GameConstants.FONT_FAMILY, Font.BOLD, 13));
-        g2d.setColor(ready ? new Color(80, 230, 80) : new Color(160, 160, 160));
-        g2d.drawString("DODGE", x, y);
+        // Dark background circle
+        g2d.setColor(new Color(30, 30, 30, 210));
+        g2d.fillOval(cx - r, cy - r, r * 2, r * 2);
 
-        // Cooldown bar background
-        g2d.setColor(new Color(60, 60, 60, 180));
-        g2d.fillRoundRect(x, y + 5, barW, barH, 4, 4);
-
-        // Cooldown bar fill
-        int filled = ready ? barW
-                           : (int) (barW * (1.0 - (double) cooldown / GameConstants.DODGE_COOLDOWN_TICKS));
+        // Filled arc — sweeps clockwise from 12-o'clock as cooldown recovers
+        double fraction = ready ? 1.0
+                                : 1.0 - (double) cooldown / GameConstants.DODGE_COOLDOWN_TICKS;
+        int arcAngle = (int) Math.round(360 * fraction);
         g2d.setColor(ready ? new Color(80, 230, 80) : new Color(80, 140, 200));
-        if (filled > 0) g2d.fillRoundRect(x, y + 5, filled, barH, 4, 4);
+        g2d.fillArc(cx - r, cy - r, r * 2, r * 2, 90, -arcAngle);
 
-        // Ready label
+        // Circle border
+        g2d.setColor(ready ? new Color(80, 230, 80, 200) : new Color(130, 130, 160, 180));
+        g2d.drawOval(cx - r, cy - r, r * 2, r * 2);
+
+        // Icon glyph centred inside the circle
+        g2d.setFont(new Font(GameConstants.FONT_FAMILY, Font.BOLD, 13));
+        g2d.setColor(Color.WHITE);
+        FontMetrics fm = g2d.getFontMetrics();
+        String icon = "\u21E8"; // ⇨
+        g2d.drawString(icon, cx - fm.stringWidth(icon) / 2, cy + fm.getAscent() / 2 - 1);
+
+        // "DODGE" label below the circle
+        g2d.setFont(new Font(GameConstants.FONT_FAMILY, Font.BOLD, 10));
+        g2d.setColor(ready ? new Color(80, 230, 80) : new Color(160, 160, 160));
+        FontMetrics lfm = g2d.getFontMetrics();
+        g2d.drawString("DODGE", cx - lfm.stringWidth("DODGE") / 2, cy + r + 13);
+
+        // "SPACE" hint shown only when ready
         if (ready) {
-            g2d.setFont(new Font(GameConstants.FONT_FAMILY, Font.PLAIN, 11));
-            g2d.setColor(new Color(80, 230, 80));
-            g2d.drawString("SPACE", x + barW + 6, y + 13);
+            g2d.setFont(new Font(GameConstants.FONT_FAMILY, Font.PLAIN, 9));
+            g2d.setColor(new Color(80, 230, 80, 200));
+            FontMetrics sfm = g2d.getFontMetrics();
+            g2d.drawString("SPACE", cx - sfm.stringWidth("SPACE") / 2, cy + r + 24);
         }
     }
 
@@ -377,32 +392,64 @@ public class GameRenderer {
             MainClass.SCREEN_HEIGHT / 2 - 85);
 
         // Cards
-        java.util.List<UpgradeType> choices = game.getUpgradeManager().getCurrentChoices();
+        java.util.List<UpgradeOffer> choices = game.getUpgradeManager().getCurrentChoices();
         int n = choices.size();
         int totalW = n * GameConstants.UPGRADE_CARD_WIDTH + (n - 1) * GameConstants.UPGRADE_CARD_GAP;
         int startX = (MainClass.SCREEN_WIDTH - totalW) / 2;
         int cardY  = MainClass.SCREEN_HEIGHT / 2 - 80;
 
         for (int i = 0; i < n; i++) {
-            UpgradeType type = choices.get(i);
+            UpgradeOffer offer = choices.get(i);
             int cardX = startX + i * (GameConstants.UPGRADE_CARD_WIDTH + GameConstants.UPGRADE_CARD_GAP);
+
+            String rarityTag = offer.getRarityTag();
 
             // Card background
             g2d.setColor(new Color(30, 45, 70, 230));
             g2d.fillRoundRect(cardX, cardY, GameConstants.UPGRADE_CARD_WIDTH,
                 GameConstants.UPGRADE_CARD_HEIGHT, 16, 16);
-            // Card border
-            g2d.setColor(new Color(90, 130, 210, 180));
+
+            // Card border — coloured by rarity
+            g2d.setColor(rarityBorderColor(rarityTag));
             g2d.drawRoundRect(cardX, cardY, GameConstants.UPGRADE_CARD_WIDTH,
                 GameConstants.UPGRADE_CARD_HEIGHT, 16, 16);
+
+            int textY = cardY + 20;
+
+            // Rarity tag (if present) at top of card
+            if (!rarityTag.isEmpty()) {
+                g2d.setFont(new Font(GameConstants.FONT_FAMILY, Font.BOLD, 11));
+                g2d.setColor(rarityTextColor(rarityTag));
+                FontMetrics rfm = g2d.getFontMetrics();
+                g2d.drawString(rarityTag,
+                    cardX + (GameConstants.UPGRADE_CARD_WIDTH - rfm.stringWidth(rarityTag)) / 2,
+                    textY);
+                textY += 16;
+            }
 
             // Description text (word-wrapped)
             g2d.setFont(new Font(GameConstants.FONT_FAMILY, Font.PLAIN, 13));
             g2d.setColor(new Color(200, 215, 240));
-            drawWrappedText(g2d, type.description,
-                cardX + 10, cardY + 22,
-                GameConstants.UPGRADE_CARD_WIDTH - 20, 18);
+            drawWrappedText(g2d, offer.description,
+                cardX + 10, textY,
+                GameConstants.UPGRADE_CARD_WIDTH - 20, 17);
         }
+    }
+
+    /** Returns the card border color based on the rarity tag string. */
+    private Color rarityBorderColor(String tag) {
+        if (tag.contains("LEGENDARY")) return new Color(255, 160, 30, 220);
+        if (tag.contains("EPIC"))      return new Color(180, 80, 220, 210);
+        if (tag.contains("RARE"))      return new Color(80, 160, 230, 200);
+        return new Color(90, 130, 210, 180);
+    }
+
+    /** Returns the rarity label text color. */
+    private Color rarityTextColor(String tag) {
+        if (tag.contains("LEGENDARY")) return new Color(255, 200, 60);
+        if (tag.contains("EPIC"))      return new Color(210, 100, 255);
+        if (tag.contains("RARE"))      return new Color(100, 180, 255);
+        return Color.WHITE;
     }
 
     /** Draws word-wrapped text within a given pixel width. */
