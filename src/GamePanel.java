@@ -272,6 +272,10 @@ public class GamePanel extends JPanel implements KeyListener {
         addKeyListener(this);
         setVisible(true);
 
+        // Use a lower initial zoom so the small evolving world doesn't feel
+        // claustrophobic and so the zoom-out animation is shorter / less jarring.
+        cameraZoom = GameConstants.EVOLVING_INITIAL_ZOOM;
+
         background = new Background();
 
         playerCell = new Cell(MainClass.WORLD_WIDTH / 2, MainClass.WORLD_HEIGHT / 2, GameConstants.INITIAL_RADIUS);
@@ -586,12 +590,10 @@ public class GamePanel extends JPanel implements KeyListener {
                     int maxCells = getMaxCells();
                     int deficit  = maxCells - foodCells.size();
 
-                    // Enter fast-fill mode for large deficits (initial load or stage clear)
-                    boolean bigLoad = worldLoading || deficit > GameConstants.CELL_SPAWN_BATCH * 3;
-                    if (bigLoad && !worldLoading) worldLoading = true;
-
                     if (deficit > 0) {
-                        int batch = bigLoad
+                        // Fast batch while worldLoading (initial load or stage clear);
+                        // slow top-up otherwise.
+                        int batch = worldLoading
                             ? Math.min(deficit, GameConstants.CELL_SPAWN_BATCH * 2)
                             : Math.min(deficit, GameConstants.CELL_SPAWN_BATCH);
                         for (int i = 0; i < batch && foodCells.size() < maxCells && running; i++) {
@@ -603,7 +605,10 @@ public class GamePanel extends JPanel implements KeyListener {
                         }
                     }
 
-                    // Exit loading state once the world is sufficiently populated
+                    // Exit loading state once the world is full.
+                    // worldLoading is only ever set true externally (constructor or
+                    // nextStage) — the spawn thread must never set it true itself,
+                    // or any brief deficit during normal play would flash the overlay.
                     if (worldLoading && foodCells.size() >= maxCells) {
                         worldLoading = false;
                     }
@@ -611,8 +616,6 @@ public class GamePanel extends JPanel implements KeyListener {
 
                 repaint();
                 try {
-                    // Fast tick while loading so the progress bar animates smoothly;
-                    // normal interval during regular play to avoid waking up too often.
                     Thread.sleep(worldLoading ? 16 : GameConstants.CELL_SPAWN_TICK_MS);
                 } catch (InterruptedException e) {
                     break;
@@ -793,6 +796,9 @@ public class GamePanel extends JPanel implements KeyListener {
         // Grow world size for the new stage
         MainClass.WORLD_WIDTH  += GameConstants.EVOLVING_WORLD_W_INCREMENT;
         MainClass.WORLD_HEIGHT += GameConstants.EVOLVING_WORLD_H_INCREMENT;
+
+        // Reset camera zoom so each stage starts at the same consistent zoom level
+        cameraZoom = GameConstants.EVOLVING_INITIAL_ZOOM;
 
         // Reset player radius to initial, then re-apply size upgrades
         playerCell.cellRad = GameConstants.INITIAL_RADIUS;
