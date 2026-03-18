@@ -22,6 +22,8 @@ public final class GameConstants {
     public static final int MIN_WORLD_WIDTH  = 800;
     public static final int MIN_WORLD_HEIGHT = 600;
     public static final int SPAWN_BORDER = 40;
+    /** Minimum distance (px) between an NPC spawn point and the player / other NPCs */
+    public static final double NPC_SPAWN_SAFE_DIST = 250.0;
 
     // ── Cell Properties ──────────────────────────────────────────────────
     public static final double INITIAL_RADIUS  = 2.0;
