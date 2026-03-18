@@ -104,6 +104,16 @@ public class GamePanel extends JPanel implements KeyListener {
     private EvolvingProgressSave evolvingProgress = null;
 
     /**
+     * When true, the next upgrade-selection dismissal should chain into the
+     * stage-complete screen rather than resuming gameplay (evolving mode only).
+     */
+    private boolean awaitingStageUpgrade = false;
+
+    /** Saved world dimensions before entering evolving mode (restored on returnToMenu) */
+    private int savedWorldW = 0;
+    private int savedWorldH = 0;
+
+    /**
      * When true the game loop is frozen while the player picks an upgrade.
      * Distinct from {@code paused} so the dev-log overlay is not shown
      * during upgrade selection.
@@ -241,6 +251,12 @@ public class GamePanel extends JPanel implements KeyListener {
         this.evolvingMode     = true;
         this.currentStage     = 1;
         this.evolvingProgress = evolvingProgress;
+
+        // Save and override world dimensions for evolving mode
+        this.savedWorldW = MainClass.WORLD_WIDTH;
+        this.savedWorldH = MainClass.WORLD_HEIGHT;
+        MainClass.WORLD_WIDTH  = GameConstants.EVOLVING_INITIAL_WORLD_W;
+        MainClass.WORLD_HEIGHT = GameConstants.EVOLVING_INITIAL_WORLD_H;
         this.collisionHandler = new CollisionHandler(this);
         this.renderer         = new GameRenderer(this);
 
@@ -600,11 +616,13 @@ public class GamePanel extends JPanel implements KeyListener {
                     applyRegen();
                     checkNPCUpgrades();
 
-                    // Check score-based upgrade threshold
-                    upgradeManager.checkScore(hud.score);
-                    if (upgradeManager.isUpgradeReady() && !upgradeSelecting) {
-                        upgradeSelecting = true;
-                        SwingUtilities.invokeLater(this::showUpgradeSelection);
+                    // Check score-based upgrade threshold (not used in evolving mode)
+                    if (!evolvingMode) {
+                        upgradeManager.checkScore(hud.score);
+                        if (upgradeManager.isUpgradeReady() && !upgradeSelecting) {
+                            upgradeSelecting = true;
+                            SwingUtilities.invokeLater(this::showUpgradeSelection);
+                        }
                     }
 
                     // Check victory: all NPCs dead
@@ -666,7 +684,7 @@ public class GamePanel extends JPanel implements KeyListener {
      */
     private void triggerStageComplete() {
         if (stageTransitioning || gameOver) return;
-        // Cancel pending upgrade selection (avoid overlap with stage screen)
+        // Cancel any leftover pending upgrade
         if (upgradeSelecting || upgradeManager.isUpgradeReady()) {
             upgradeSelecting = false;
             upgradeManager.cancelPendingUpgrade();
@@ -679,7 +697,16 @@ public class GamePanel extends JPanel implements KeyListener {
             evolvingProgress.updateAndSave(currentStage, hud.score);
         }
 
-        SwingUtilities.invokeLater(this::showStageCompleteScreen);
+        // Offer one upgrade for clearing this stage (chains into stage-complete screen)
+        upgradeManager.triggerStageUpgrade();
+        if (upgradeManager.isUpgradeReady()) {
+            awaitingStageUpgrade = true;
+            upgradeSelecting = true;
+            SwingUtilities.invokeLater(this::showUpgradeSelection);
+        } else {
+            // All upgrades maxed — go straight to stage-complete screen
+            SwingUtilities.invokeLater(this::showStageCompleteScreen);
+        }
     }
 
     /**
@@ -697,6 +724,25 @@ public class GamePanel extends JPanel implements KeyListener {
         }
 
         currentStage++;
+
+        // Grow world size for the new stage
+        MainClass.WORLD_WIDTH  += GameConstants.EVOLVING_WORLD_W_INCREMENT;
+        MainClass.WORLD_HEIGHT += GameConstants.EVOLVING_WORLD_H_INCREMENT;
+
+        // Reset player radius to initial, then re-apply size upgrades
+        playerCell.cellRad = GameConstants.INITIAL_RADIUS;
+        int sizeLevel = upgradeManager.getAppliedCounts().getOrDefault(UpgradeType.SIZE_BOOST, 0);
+        for (int i = 0; i < sizeLevel; i++) {
+            playerCell.cellRad = GameConstants.growRadius(
+                playerCell.cellRad, GameConstants.SIZE_UPGRADE_AMOUNT);
+        }
+
+        // Reposition player to the new world center
+        playerCell.x = MainClass.WORLD_WIDTH  / 2.0 - playerCell.cellRad;
+        playerCell.y = MainClass.WORLD_HEIGHT / 2.0 - playerCell.cellRad;
+        playerCell.spawnAlpha = 1f;
+
+        updatePlayerScore();
 
         // Record the new stage as started
         if (evolvingProgress != null) {
@@ -792,6 +838,7 @@ public class GamePanel extends JPanel implements KeyListener {
      * Immediately offers an upgrade selection if none is already pending.
      */
     public void offerKillUpgrade() {
+        if (evolvingMode) return; // upgrades are awarded per-stage in evolving mode
         if (gameOver || upgradeSelecting || upgradeManager.isUpgradeReady()) return;
         upgradeManager.triggerKillUpgrade();
         if (upgradeManager.isUpgradeReady()) {
@@ -847,9 +894,14 @@ public class GamePanel extends JPanel implements KeyListener {
         if (choices.isEmpty()) {
             upgradeManager.cancelPendingUpgrade();
             upgradeSelecting = false;
-            maxUpgradesFlashUntil = System.currentTimeMillis() + 2500;
-            requestFocusInWindow();
-            repaint();
+            if (awaitingStageUpgrade) {
+                awaitingStageUpgrade = false;
+                showStageCompleteScreen();
+            } else {
+                maxUpgradesFlashUntil = System.currentTimeMillis() + 2500;
+                requestFocusInWindow();
+                repaint();
+            }
             return;
         }
 
@@ -902,9 +954,14 @@ public class GamePanel extends JPanel implements KeyListener {
         }
 
         upgradeSelecting = false;
-        requestFocusInWindow();   // restore keyboard focus lost when buttons were removed
-        revalidate();
-        repaint();
+        if (awaitingStageUpgrade) {
+            awaitingStageUpgrade = false;
+            showStageCompleteScreen(); // chain directly into stage-complete
+        } else {
+            requestFocusInWindow();
+            revalidate();
+            repaint();
+        }
     }
 
     // ── Camera ───────────────────────────────────────────────────────────
@@ -1012,6 +1069,12 @@ public class GamePanel extends JPanel implements KeyListener {
         // Final save when returning to menu from evolving mode
         if (evolvingMode && evolvingProgress != null) {
             evolvingProgress.updateAndSave(currentStage, hud.score);
+        }
+
+        // Restore world dimensions that were overridden for evolving mode
+        if (evolvingMode && savedWorldW > 0) {
+            MainClass.WORLD_WIDTH  = savedWorldW;
+            MainClass.WORLD_HEIGHT = savedWorldH;
         }
 
         mainClass.mainPanel = new MainPanel(mainClass);
