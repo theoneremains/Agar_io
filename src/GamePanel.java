@@ -559,38 +559,61 @@ public class GamePanel extends JPanel implements KeyListener {
 
     // ── Game Threads ─────────────────────────────────────────────────────
 
-    /** Spawns initial food cells then continuously tops up */
+    /**
+     * Single unified food-spawn thread.
+     *
+     * <p>The thread has two operating modes that it switches between automatically:
+     * <ul>
+     *   <li><b>Fast-fill mode</b> — active when {@code worldLoading} is {@code true}
+     *       (set externally by the constructor or {@link #nextStage()}) or whenever
+     *       the deficit exceeds {@code CELL_SPAWN_BATCH × 3}.  Adds up to
+     *       {@code CELL_SPAWN_BATCH × 2} cells then sleeps 16 ms so the EDT stays
+     *       responsive.  Clears {@code worldLoading} once the world is full.</li>
+     *   <li><b>Slow top-up mode</b> — active during normal play.  Adds up to
+     *       {@code CELL_SPAWN_BATCH} cells then sleeps {@code CELL_SPAWN_TICK_MS}.</li>
+     * </ul>
+     *
+     * <p>This design ensures that both the initial world population and every
+     * stage-transition refill use the loading-screen path, eliminating the lag
+     * that previously occurred when the continuous top-up loop tried to refill
+     * a completely empty world 10 cells at a time every 500 ms.
+     */
     private void startCellSpawnThread() {
-        worldLoading = true;
+        worldLoading = true;  // renderer shows loading overlay until first fill completes
         Thread cellThread = new Thread(() -> {
-            // Initial batch spawn — use batches with sleep to keep the EDT responsive
-            int maxCells = getMaxCells();
-            while (foodCells.size() < maxCells && !gameOver && running) {
-                int remaining = maxCells - foodCells.size();
-                int batch = Math.min(remaining, GameConstants.CELL_SPAWN_BATCH * 2);
-                for (int i = 0; i < batch && foodCells.size() < maxCells && running; i++) {
-                    Cell c = generateNonOverlappingCell();
-                    c.cellColor = GameConstants.CELL_COLORS[random.nextInt(GameConstants.CELL_COLORS.length)];
-                    c.spawnAlpha = 1f;
-                    foodCells.add(c);
-                }
-                try { Thread.sleep(16); } catch (InterruptedException e) { break; }
-            }
-            worldLoading = false;
-            // Continuous top-up
             while (running) {
                 if (!gameOver) {
-                    int deficit = getMaxCells() - foodCells.size();
-                    int batch = Math.min(deficit, GameConstants.CELL_SPAWN_BATCH);
-                    for (int i = 0; i < batch && running; i++) {
-                        Cell c = generateNonOverlappingCell();
-                        c.cellColor = GameConstants.CELL_COLORS[random.nextInt(GameConstants.CELL_COLORS.length)];
-                        foodCells.add(c);
+                    int maxCells = getMaxCells();
+                    int deficit  = maxCells - foodCells.size();
+
+                    // Enter fast-fill mode for large deficits (initial load or stage clear)
+                    boolean bigLoad = worldLoading || deficit > GameConstants.CELL_SPAWN_BATCH * 3;
+                    if (bigLoad && !worldLoading) worldLoading = true;
+
+                    if (deficit > 0) {
+                        int batch = bigLoad
+                            ? Math.min(deficit, GameConstants.CELL_SPAWN_BATCH * 2)
+                            : Math.min(deficit, GameConstants.CELL_SPAWN_BATCH);
+                        for (int i = 0; i < batch && foodCells.size() < maxCells && running; i++) {
+                            Cell c = generateNonOverlappingCell();
+                            c.cellColor = GameConstants.CELL_COLORS[
+                                random.nextInt(GameConstants.CELL_COLORS.length)];
+                            c.spawnAlpha = 1f;
+                            foodCells.add(c);
+                        }
+                    }
+
+                    // Exit loading state once the world is sufficiently populated
+                    if (worldLoading && foodCells.size() >= maxCells) {
+                        worldLoading = false;
                     }
                 }
+
                 repaint();
                 try {
-                    Thread.sleep(GameConstants.CELL_SPAWN_TICK_MS);
+                    // Fast tick while loading so the progress bar animates smoothly;
+                    // normal interval during regular play to avoid waking up too often.
+                    Thread.sleep(worldLoading ? 16 : GameConstants.CELL_SPAWN_TICK_MS);
                 } catch (InterruptedException e) {
                     break;
                 }
@@ -791,11 +814,16 @@ public class GamePanel extends JPanel implements KeyListener {
             evolvingProgress.updateAndSave(currentStage, hud.score);
         }
 
+        // Signal the spawn thread to enter fast-fill / loading mode before
+        // the food list is cleared so the loading overlay appears immediately
+        // and the game loop stays paused while the world repopulates.
+        worldLoading = true;
+
         // Clear existing NPCs and spawn for new stage
         npcList.clear();
         spawnNPCsForEvolvingStage(currentStage);
 
-        // Clear food — spawn thread will refill
+        // Clear food — the spawn thread will detect the large deficit and refill
         foodCells.clear();
 
         stageTransitioning = false;
