@@ -5,6 +5,6 @@ dist/
 # User save files
 saves/
 
-# IntelliJ IDEA build output (keep tracked .class files that were already committed)
+# IntelliJ IDEA build output — compiled .class files should not be tracked
 # out/ is excluded — compiled .class files should not be tracked
 out/
