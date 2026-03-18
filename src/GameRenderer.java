@@ -52,10 +52,17 @@ public class GameRenderer {
 
         drawHUD(g2d);
         drawScoreboard(g2d);
+        if (game.worldLoading) {
+            drawLoadingOverlay(g2d);
+            return; // nothing else needed during load
+        }
         drawUpgradeOverlay(g2d);
         drawMaxUpgradesFlash(g2d);
         drawPausedOverlay(g2d);
-        if (game.isStageTransitioning()) {
+        // Don't draw the stage-complete overlay while the upgrade selection is
+        // active — the upgrade overlay (drawn above) and its Swing buttons own
+        // the screen at that point, and the stage overlay would z-fight with them.
+        if (game.isStageTransitioning() && !game.upgradeSelecting) {
             drawStageCompleteOverlay(g2d);
         }
         if (game.isGameOver()) {
@@ -578,6 +585,45 @@ public class GameRenderer {
         g2d.drawString(sub, (w - fm.stringWidth(sub)) / 2, boxY + boxH / 2 + 18);
 
         g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 1f));
+    }
+
+    private void drawLoadingOverlay(Graphics2D g2d) {
+        int w = MainClass.SCREEN_WIDTH;
+        int h = MainClass.SCREEN_HEIGHT;
+
+        // Dark translucent fill
+        g2d.setColor(new Color(10, 10, 20, 210));
+        g2d.fillRect(0, 0, w, h);
+
+        // Pulsing dots as a simple progress indicator
+        long t = System.currentTimeMillis();
+        int dots = (int) ((t / 400) % 4);
+        String dotStr = ".".repeat(dots);
+
+        g2d.setFont(new Font(GameConstants.FONT_FAMILY, Font.BOLD, 42));
+        g2d.setColor(new Color(180, 140, 255));
+        String msg = "Loading" + dotStr;
+        FontMetrics fm = g2d.getFontMetrics();
+        g2d.drawString(msg, (w - fm.stringWidth(msg)) / 2, h / 2);
+
+        g2d.setFont(new Font(GameConstants.FONT_FAMILY, Font.PLAIN, 16));
+        g2d.setColor(new Color(160, 150, 200));
+        String sub = "Populating world — please wait";
+        FontMetrics sfm = g2d.getFontMetrics();
+        g2d.drawString(sub, (w - sfm.stringWidth(sub)) / 2, h / 2 + 36);
+
+        // Spawn progress bar
+        int filled = game.getFoodCells().size();
+        int total  = Math.max(1, game.getMaxCells());
+        int barW   = 300;
+        int barH   = 12;
+        int barX   = (w - barW) / 2;
+        int barY   = h / 2 + 60;
+        g2d.setColor(new Color(60, 50, 90));
+        g2d.fillRoundRect(barX, barY, barW, barH, barH, barH);
+        int fill = (int) Math.round((double) filled / total * barW);
+        g2d.setColor(new Color(130, 80, 220));
+        if (fill > 0) g2d.fillRoundRect(barX, barY, fill, barH, barH, barH);
     }
 
     private void drawPausedOverlay(Graphics2D g2d) {

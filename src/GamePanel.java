@@ -114,6 +114,12 @@ public class GamePanel extends JPanel implements KeyListener {
     private int savedWorldH = 0;
 
     /**
+     * True while the initial food-cell batch is being spawned.
+     * The game loop skips all logic and the renderer shows a loading overlay.
+     */
+    public volatile boolean worldLoading = false;
+
+    /**
      * When true the game loop is frozen while the player picks an upgrade.
      * Distinct from {@code paused} so the dev-log overlay is not shown
      * during upgrade selection.
@@ -372,11 +378,8 @@ public class GamePanel extends JPanel implements KeyListener {
 
     private void spawnNPCsOfDifficulty(int count, NPC.Difficulty diff, Set<String> usedNames) {
         for (int i = 0; i < count; i++) {
-            int cx = GameConstants.SPAWN_BORDER + random.nextInt(
-                Math.max(1, MainClass.WORLD_WIDTH - 2 * GameConstants.SPAWN_BORDER));
-            int cy = GameConstants.SPAWN_BORDER + random.nextInt(
-                Math.max(1, MainClass.WORLD_HEIGHT - 2 * GameConstants.SPAWN_BORDER));
-            npcList.add(new NPC(cx, cy, GameConstants.INITIAL_RADIUS, usedNames, diff));
+            int[] pos = safeNPCSpawnPos(GameConstants.NPC_SPAWN_SAFE_DIST);
+            npcList.add(new NPC(pos[0], pos[1], GameConstants.INITIAL_RADIUS, usedNames, diff));
         }
     }
 
@@ -438,11 +441,8 @@ public class GamePanel extends JPanel implements KeyListener {
                                                 Set<String> usedNames,
                                                 int minUpgrades, int maxUpgrades) {
         for (int i = 0; i < count; i++) {
-            int cx = GameConstants.SPAWN_BORDER + random.nextInt(
-                Math.max(1, MainClass.WORLD_WIDTH - 2 * GameConstants.SPAWN_BORDER));
-            int cy = GameConstants.SPAWN_BORDER + random.nextInt(
-                Math.max(1, MainClass.WORLD_HEIGHT - 2 * GameConstants.SPAWN_BORDER));
-            NPC npc = new NPC(cx, cy, GameConstants.INITIAL_RADIUS, usedNames, diff);
+            int[] pos = safeNPCSpawnPos(GameConstants.NPC_SPAWN_SAFE_DIST);
+            NPC npc = new NPC(pos[0], pos[1], GameConstants.INITIAL_RADIUS, usedNames, diff);
 
             // Seed initial upgrades
             if (maxUpgrades > 0) {
@@ -454,6 +454,41 @@ public class GamePanel extends JPanel implements KeyListener {
             }
             npcList.add(npc);
         }
+    }
+
+    /**
+     * Returns a [cx, cy] spawn position that is at least {@code minDist} pixels
+     * away from the player cell center and from every already-spawned NPC.
+     * Falls back to any valid position after 60 attempts.
+     */
+    private int[] safeNPCSpawnPos(double minDist) {
+        int worldW = Math.max(1, MainClass.WORLD_WIDTH  - 2 * GameConstants.SPAWN_BORDER);
+        int worldH = Math.max(1, MainClass.WORLD_HEIGHT - 2 * GameConstants.SPAWN_BORDER);
+        double minDistSq = minDist * minDist;
+        double pCX = playerCell.getCenterX();
+        double pCY = playerCell.getCenterY();
+
+        for (int attempt = 0; attempt < 60; attempt++) {
+            int cx = GameConstants.SPAWN_BORDER + random.nextInt(worldW);
+            int cy = GameConstants.SPAWN_BORDER + random.nextInt(worldH);
+            // Must be far enough from the player
+            if (GameConstants.distSq(cx, cy, pCX, pCY) < minDistSq) continue;
+            // Must be far enough from every existing NPC
+            boolean tooClose = false;
+            for (NPC existing : npcList) {
+                if (GameConstants.distSq(cx, cy,
+                        existing.cell.getCenterX(), existing.cell.getCenterY()) < minDistSq) {
+                    tooClose = true;
+                    break;
+                }
+            }
+            if (!tooClose) return new int[]{cx, cy};
+        }
+        // Fallback: place anywhere valid
+        return new int[]{
+            GameConstants.SPAWN_BORDER + random.nextInt(worldW),
+            GameConstants.SPAWN_BORDER + random.nextInt(worldH)
+        };
     }
 
     // ── Food Cell Generation ─────────────────────────────────────────────
@@ -526,15 +561,22 @@ public class GamePanel extends JPanel implements KeyListener {
 
     /** Spawns initial food cells then continuously tops up */
     private void startCellSpawnThread() {
+        worldLoading = true;
         Thread cellThread = new Thread(() -> {
-            // Initial batch spawn
+            // Initial batch spawn — use batches with sleep to keep the EDT responsive
             int maxCells = getMaxCells();
             while (foodCells.size() < maxCells && !gameOver && running) {
-                Cell c = generateNonOverlappingCell();
-                c.cellColor = GameConstants.CELL_COLORS[random.nextInt(GameConstants.CELL_COLORS.length)];
-                c.spawnAlpha = 1f;
-                foodCells.add(c);
+                int remaining = maxCells - foodCells.size();
+                int batch = Math.min(remaining, GameConstants.CELL_SPAWN_BATCH * 2);
+                for (int i = 0; i < batch && foodCells.size() < maxCells && running; i++) {
+                    Cell c = generateNonOverlappingCell();
+                    c.cellColor = GameConstants.CELL_COLORS[random.nextInt(GameConstants.CELL_COLORS.length)];
+                    c.spawnAlpha = 1f;
+                    foodCells.add(c);
+                }
+                try { Thread.sleep(16); } catch (InterruptedException e) { break; }
             }
+            worldLoading = false;
             // Continuous top-up
             while (running) {
                 if (!gameOver) {
@@ -562,7 +604,7 @@ public class GamePanel extends JPanel implements KeyListener {
     private void startGameThread() {
         Thread thread = new Thread(() -> {
             while (running) {
-                if (!paused && !gameOver && !upgradeSelecting && !stageTransitioning) {
+                if (!paused && !gameOver && !upgradeSelecting && !stageTransitioning && !worldLoading) {
                     // Fixed speed + any speed upgrades
                     if (!devSpeedOverride) {
                         double speed = GameConstants.DEFAULT_SPEED + playerSpeedBonus;
@@ -824,6 +866,7 @@ public class GamePanel extends JPanel implements KeyListener {
      * a random NPC-eligible upgrade when a threshold is crossed.
      */
     private void checkNPCUpgrades() {
+        if (evolvingMode) return; // NPCs only get upgrades from stage seeding in evolving mode
         for (NPC npc : npcList) {
             if (npc.alive) {
                 npc.upgradeManager.checkAndAutoApplyForNPC(npc.score, npc);
