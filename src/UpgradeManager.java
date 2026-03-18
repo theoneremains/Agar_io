@@ -91,6 +91,17 @@ public class UpgradeManager {
     }
 
     /**
+     * Prepares an upgrade offer for the evolving mode stage-clear reward.
+     * Always overwrites any previous pending state (safe to call regardless of
+     * whether an upgrade is already pending since stage transitions cancel any
+     * pending offer before calling this).
+     */
+    public void triggerStageUpgrade() {
+        currentChoices = pickPlayerChoices();
+        upgradeReady   = !currentChoices.isEmpty();
+    }
+
+    /**
      * Cancels any pending upgrade selection (e.g. when game over happens before
      * the player could choose).
      */

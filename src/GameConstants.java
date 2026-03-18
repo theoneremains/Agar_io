@@ -104,11 +104,19 @@ public final class GameConstants {
     /** File extension for evolving mode save files */
     public static final String EVOLVING_SAVE_EXT  = ".ecfg";
     /** NPC count at stage 1 */
-    public static final int EVOLVING_BASE_NPC_COUNT = 5;
+    public static final int EVOLVING_BASE_NPC_COUNT = 3;
     /** Additional NPCs added per stage */
-    public static final int EVOLVING_NPC_INCREMENT  = 3;
+    public static final int EVOLVING_NPC_INCREMENT  = 2;
     /** Maximum NPC count across all stages */
     public static final int EVOLVING_MAX_NPC_COUNT  = 30;
+    /** World width at stage 1 of evolving mode */
+    public static final int EVOLVING_INITIAL_WORLD_W = 1280;
+    /** World height at stage 1 of evolving mode */
+    public static final int EVOLVING_INITIAL_WORLD_H = 720;
+    /** World width growth per stage */
+    public static final int EVOLVING_WORLD_W_INCREMENT = 256;
+    /** World height growth per stage */
+    public static final int EVOLVING_WORLD_H_INCREMENT = 144;
     /** UI color for the Evolving Mode button */
     public static final Color BTN_PURPLE = new Color(100, 50, 160);
 
