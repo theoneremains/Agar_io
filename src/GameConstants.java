@@ -127,11 +127,11 @@ public final class GameConstants {
     public static final int UPGRADE_BTN_MARGIN  = 10;
     // ── Magnet upgrade ───────────────────────────────────────────────────
     /** Small base magnet radius the player always has (even without the upgrade) */
-    public static final double BASE_MAGNET_RADIUS = 30.0;
+    public static final double BASE_MAGNET_RADIUS = 10.0;
     /** World-space radius added per Magnet upgrade level */
-    public static final double MAGNET_RADIUS_PER_LEVEL = 160.0;
+    public static final double MAGNET_RADIUS_PER_LEVEL = 70.0;
     /** Pixels per tick that attracted food cells move toward the player */
-    public static final double MAGNET_PULL_SPEED = 1.8;
+    public static final double MAGNET_PULL_SPEED = 0.8;
     // ── Regeneration upgrade ─────────────────────────────────────────────
     /** Radius recovered per tick per Regeneration level */
     public static final double REGEN_RATE_PER_LEVEL = 0.0004;

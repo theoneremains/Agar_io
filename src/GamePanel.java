@@ -475,6 +475,11 @@ public class GamePanel extends JPanel implements KeyListener {
 
     private void triggerVictory() {
         if (gameOver) return;
+        // Cancel any pending upgrade selection so it doesn't appear over the victory screen
+        if (upgradeSelecting || upgradeManager.isUpgradeReady()) {
+            upgradeSelecting = false;
+            upgradeManager.cancelPendingUpgrade();
+        }
         hud.updateElapsedTime();
         finalElapsedTime = hud.elapsedTime;
         gameOver = true;
@@ -542,7 +547,7 @@ public class GamePanel extends JPanel implements KeyListener {
      * Immediately offers an upgrade selection if none is already pending.
      */
     public void offerKillUpgrade() {
-        if (upgradeSelecting || upgradeManager.isUpgradeReady()) return;
+        if (gameOver || upgradeSelecting || upgradeManager.isUpgradeReady()) return;
         upgradeManager.triggerKillUpgrade();
         if (upgradeManager.isUpgradeReady()) {
             upgradeSelecting = true;
@@ -593,7 +598,7 @@ public class GamePanel extends JPanel implements KeyListener {
     private void showUpgradeSelection() {
         setLayout(null);
 
-        List<UpgradeType> choices = upgradeManager.getCurrentChoices();
+        List<UpgradeOffer> choices = upgradeManager.getCurrentChoices();
         int n = choices.size();
 
         int totalW = n * GameConstants.UPGRADE_CARD_WIDTH + (n - 1) * GameConstants.UPGRADE_CARD_GAP;
@@ -605,17 +610,17 @@ public class GamePanel extends JPanel implements KeyListener {
         int btnW    = GameConstants.UPGRADE_CARD_WIDTH - 2 * GameConstants.UPGRADE_BTN_MARGIN;
 
         for (int i = 0; i < n; i++) {
-            UpgradeType type = choices.get(i);
+            UpgradeOffer offer = choices.get(i);
             int btnX = startX + i * (GameConstants.UPGRADE_CARD_WIDTH + GameConstants.UPGRADE_CARD_GAP)
                        + GameConstants.UPGRADE_BTN_MARGIN;
 
-            StyledButton btn = new StyledButton(type.displayName, GameConstants.BTN_BLUE);
-            btn.setFont(new Font(GameConstants.FONT_FAMILY, Font.BOLD, 14));
+            StyledButton btn = new StyledButton(offer.displayName, GameConstants.BTN_BLUE);
+            btn.setFont(new Font(GameConstants.FONT_FAMILY, Font.BOLD, 13));
             btn.setBounds(btnX, btnY, btnW, GameConstants.UPGRADE_BTN_HEIGHT);
             btn.setName("upgrade_btn");
             btn.setFocusable(false);   // prevent stealing keyboard focus from GamePanel
 
-            final UpgradeType chosen = type;
+            final UpgradeOffer chosen = offer;
             btn.addActionListener(e -> dismissUpgradeSelection(chosen));
 
             add(btn);
@@ -626,10 +631,10 @@ public class GamePanel extends JPanel implements KeyListener {
     }
 
     /**
-     * Applies the chosen upgrade, removes the choice buttons, and resumes
+     * Applies the chosen upgrade offer, removes the choice buttons, and resumes
      * the game loop.  Must be called on the EDT.
      */
-    private void dismissUpgradeSelection(UpgradeType chosen) {
+    private void dismissUpgradeSelection(UpgradeOffer chosen) {
         upgradeManager.applyUpgrade(chosen, this);
 
         // Remove all upgrade buttons
@@ -706,6 +711,11 @@ public class GamePanel extends JPanel implements KeyListener {
 
     private void triggerGameOver() {
         if (gameOver) return;
+        // Cancel any pending upgrade selection so it doesn't appear over the game-over screen
+        if (upgradeSelecting || upgradeManager.isUpgradeReady()) {
+            upgradeSelecting = false;
+            upgradeManager.cancelPendingUpgrade();
+        }
         gameOver = true;
         ToneGenerator.stopLine(gameAmbientLine);
         gameAmbientLine = null;
