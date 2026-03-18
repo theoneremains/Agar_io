@@ -58,9 +58,11 @@ Agar_io/
 │   ├── GameSettings.java       # Settings persistence: save/load/rename with max 3 save files
 │   ├── EvolvingModePanel.java  # Infinite Evolving Cells mode entry screen (name field, load save, start)
 │   ├── EvolvingProgressSave.java # Per-player evolving progress: max stage, highest score (.ecfg files)
+│   ├── UpgradeManager.java     # Roguelite upgrade progression — thresholds, choices, apply for player/NPC
+│   ├── UpgradeType.java        # Enum of all 8 upgrade types with display names and descriptions
+│   ├── UpgradeOffer.java       # Single upgrade choice with rarity weights and display text
 │   ├── agario.png              # Legacy background image (unused — backgrounds are procedural)
 │   ├── background.png          # Legacy background image (unused — backgrounds are procedural)
-│   ├── coolMusic.wav           # Easter egg audio
 │   └── click.wav               # Button click sound
 ├── saves/                      # User save files (.cfg), max 3 — created at runtime
 ├── saves/evolving/             # Per-player evolving mode progress files (.ecfg) — created at runtime
@@ -122,7 +124,7 @@ Note: Assets (`.png`, `.wav`) live in `src/` alongside Java files. The build scr
 
 ## Source Files and Responsibilities
 
-### `GameConstants.java` *(new — extracted)*
+### `GameConstants.java`
 - Centralized repository for all magic numbers, constants, and utility methods
 - **Screen/world defaults:** `DEFAULT_SCREEN_WIDTH` (1280), `DEFAULT_SCREEN_HEIGHT` (720), `DEFAULT_WORLD_WIDTH` (3840), `DEFAULT_WORLD_HEIGHT` (2160)
 - **Cell properties:** `INITIAL_CELL_RADIUS` (2), `DEFAULT_SPEED` (3), `COLLISION_SIZE_ADVANTAGE` (0.5), `MIN_DIVIDE_RADIUS` (6)
@@ -153,7 +155,7 @@ Note: Assets (`.png`, `.wav`) live in `src/` alongside Java files. The build scr
 - Entry point: `main()` calls `SwingUtilities.invokeLater(MainClass::new)`
 - Holds references to all panels: `mainPanel`, `optionsPanel`, `gamePanel`, `worldSettingsPanel`
 
-### `GamePanel.java` *(refactored — collision and rendering extracted)*
+### `GamePanel.java`
 - Extends `JPanel`, implements `KeyListener`
 - **Constructor:** `GamePanel(MainClass mainClass, int npcCount)` — standard mode; accepts the number of NPC players (minimum 3); sets `evolvingMode=false`
 - **Evolving constructor:** `GamePanel(MainClass mainClass, EvolvingProgressSave evolvingProgress)` — evolving mode; sets `evolvingMode=true`, `currentStage=1`, calls `spawnNPCsForEvolvingStage(1)`
@@ -167,17 +169,16 @@ Note: Assets (`.png`, `.wav`) live in `src/` alongside Java files. The build scr
 - **Two daemon game threads:**
   - `startCellSpawnThread()` — initial batch spawn fills world to max capacity, then tops up in batches of `CELL_SPAWN_BATCH_SIZE` every `CELL_SPAWN_INTERVAL_MS`; stops when `gameOver` or `!running`
   - `startGameThread()` — main loop at `GAME_TICK_MS` (~100 FPS); updates player, NPC AI, advances `spawnAlpha`, camera lerp, delegates to `CollisionHandler`; skips logic when `paused` or `gameOver`
-- **Public accessors:** `getPlayerCell()`, `getFoodCells()`, `getNPCList()`, `getHUD()`, `getWorldBackground()`, `getCameraX/Y()`, `getCameraZoom()`, `getScoreboard()`, `getDivisionEffects()`, `getEatEffects()`, `getContactEffects()`, `getDisplayElapsedTime()`, `isGameOver()`, `isPaused()`, `wasEasterEggTriggered()`
+- **Public accessors:** `getPlayerCell()`, `getFoodCells()`, `getNPCList()`, `getHUD()`, `getWorldBackground()`, `getCameraX/Y()`, `getCameraZoom()`, `getScoreboard()`, `getDivisionEffects()`, `getEatEffects()`, `getContactEffects()`, `getDisplayElapsedTime()`, `isGameOver()`, `isPaused()`
 - **`returnToMenu()`** — stops `running`, closes ambient audio, disposes dev log, switches to MainPanel; ensures clean resource cleanup
 - **Cell density:** `static double cellDensity` — default from `GameConstants.DEFAULT_CELL_DENSITY`
 - **Food cell categories:** three tiers (Small 90%, Medium 7%, Large 3%) via `randomFoodRadius()` using `GameConstants` values
 - **NPC system:** `npcList` is a `CopyOnWriteArrayList<NPC>`
 - **Camera:** smooth lerp with dynamic zoom based on player radius
 - **Player color/name:** `static Color playerColor`, `static String playerName`
-- **Easter egg:** score freeze, elapsed time preservation, coolMusic playback
 - **Developer log:** `toggleDevLog()` via Ctrl+I / Meta+I
 
-### `CollisionHandler.java` *(refactored — shave-based erosion)*
+### `CollisionHandler.java`
 - Handles all collision detection and resolution for the game
 - **Constructor:** `CollisionHandler(GamePanel game)` — holds reference to game state
 - **`update()`** — called once per game tick; runs all collision checks in order:
@@ -193,22 +194,22 @@ Note: Assets (`.png`, `.wav`) live in `src/` alongside Java files. The build scr
 - **Bounce cooldown:** `BOUNCE_COOLDOWN_MS = 200` prevents sound/effect spam when cells touch repeatedly
 - **Effect spawning:** creates `EatEffect`, `ContactEffect` instances; respects `GameConstants.MAX_*_EFFECTS` limits
 
-### `GameRenderer.java` *(new — extracted from GamePanel)*
+### `GameRenderer.java`
 - Handles all drawing/rendering for the game
 - **Constructor:** `GameRenderer(GamePanel game)` — holds reference to game state
 - **`render(Graphics2D g2d)`** — full rendering pipeline called from `GamePanel.paintComponent()`:
   1. Applies camera zoom and translation (world space)
   2. Draws world background, food cells, NPCs, player, effects
   3. Restores screen space via `AffineTransform`
-  4. Draws HUD, scoreboard, overlays (pause, easter egg, game over)
+  4. Draws HUD, scoreboard, overlays (pause, game over)
 - **World-space drawing:** `drawFoodCells()`, `drawNPCs()`, `drawPlayer()`, `drawEffects()`
-- **Screen-space drawing:** `drawHUD()`, `drawScoreboard()`, `drawEasterEggOverlay()`, `drawPausedOverlay()`, `drawGameOverOverlay()`, `drawStageCompleteOverlay()`
+- **Screen-space drawing:** `drawHUD()`, `drawScoreboard()`, `drawPausedOverlay()`, `drawGameOverOverlay()`, `drawStageCompleteOverlay()`
 - **`drawStageCompleteOverlay()`** — dark purple overlay shown during `stageTransitioning`; displays "STAGE N CLEARED!", gold `★ ★ ★` row, next stage preview (NPC count, difficulty, score, carry-over reminder)
 - **`drawHUD()`** — draws centered stage badge `"STAGE  N"` in purple when `game.isEvolvingMode()`
 - **`drawGameOverOverlay()`** — purple tint in evolving mode; shows "You reached Stage N!" sub-title and "Final Score" label instead of "Final Standings"
 - **Cell name rendering:** `drawCellName()` — font-size fitted, centered inside cells
 
-### `Cell.java` *(refactored)*
+### `Cell.java`
 - Stores: `x` (`double`), `y` (`double`), `cellRad` (`double`), `cellColor`, `speedX` (`double`), `speedY` (`double`)
 - `spawnAlpha` — `float` field (0 = newly created/invisible, 1 = fully visible); incremented by `GameConstants.SPAWN_ALPHA_INCREMENT` per tick
 - **Constructor:** `Cell(int centerX, int centerY, double radius)` — sets `x = centerX - radius`, `y = centerY - radius`
@@ -260,7 +261,7 @@ Note: Assets (`.png`, `.wav`) live in `src/` alongside Java files. The build scr
 - **Animated background:** same dark gradient style as MainPanel/OptionsPanel
 - Uses `GameSettings` for persistence and validation
 
-### `GameSettings.java` *(updated)*
+### `GameSettings.java`
 - Manages game configuration with save/load support via simple key=value text files
 - **Save directory:** `GameConstants.SAVES_DIR` (`saves/`); extension `GameConstants.SAVE_EXT` (`.cfg`)
 - **Maximum save files:** `GameConstants.MAX_SAVE_FILES` (3)
@@ -273,7 +274,7 @@ Note: Assets (`.png`, `.wav`) live in `src/` alongside Java files. The build scr
 - `readFromGame()` — reads current values from static game fields
 - `restoreDefaults()` — resets all settings to compile-time defaults
 
-### `EvolvingModePanel.java` *(new)*
+### `EvolvingModePanel.java`
 - Mode entry screen opened from MainPanel's EVOLVING MODE button
 - **Fields:** player name text field, progress info label, animated `MenuBackground`
 - **`refreshProgressInfo(String name)`** — checks for an existing `.ecfg` save and shows max stage and highest score, or "No existing save" if none
@@ -283,7 +284,7 @@ Note: Assets (`.png`, `.wav`) live in `src/` alongside Java files. The build scr
 - **`paint()`** overlays title `"Infinite Evolving Cells"` and subtitle `"∞ INFINITE STAGES ∞"` in purple/gold using `MenuBackground.drawTitle()`
 - Uses `MenuBackground` for animated gradient background (same style as `MainPanel`)
 
-### `EvolvingProgressSave.java` *(new)*
+### `EvolvingProgressSave.java`
 - Manages per-player evolving mode progress persisted to `.ecfg` files in `saves/evolving/`
 - **Fields:** `playerName` (String), `maxStageReached` (int), `highestScore` (int)
 - **Save directory / extension:** `GameConstants.EVOLVING_SAVES_DIR` (`saves/evolving`) / `GameConstants.EVOLVING_SAVE_EXT` (`.ecfg`)
@@ -296,10 +297,34 @@ Note: Assets (`.png`, `.wav`) live in `src/` alongside Java files. The build scr
 - `static listSavedPlayerNames()` — returns list of saved player names by reading `playerName=` line from each `.ecfg` file
 - `getSummary()` — returns a one-line display string, e.g. `"Best: Stage 5 | Score: 470"`
 
-### `HUD.java` *(refactored)*
+### `UpgradeManager.java`
+- Manages roguelite upgrade progression for a single entity (the player or one NPC)
+- **Score thresholds:** watches `hud.score` (player) or NPC score each tick; triggers an upgrade offer when the next threshold is crossed
+- **Player flow:** `checkAndOfferUpgrade()` detects a ready upgrade → `GamePanel.showUpgradeSelection()` presents 3 random `UpgradeOffer` choices; player picks one → `applyUpgrade(UpgradeOffer)` applies it and advances `nextThresholdIndex`
+- **NPC flow:** `checkAndAutoApplyForNPC(NPC)` applies a random NPC-eligible upgrade silently with no UI; `triggerNPCKillUpgrade(NPC)` grants a bonus upgrade when the NPC kills another NPC
+- **`applyUpgradeOnce(UpgradeType, NPC?)`** — central dispatch: increments `appliedCounts`, then delegates to the appropriate stat mutation (speed, size, regen rate, shield factor, density, food size, magnet radius, dodge unlock)
+- **`pickChoices(int n)`** — builds weighted random pool of `UpgradeOffer` instances from all non-maxed upgrade types; respects `MAX_UPGRADE_LEVEL` (5) cap
+- **`pickNPCChoices()`** — same as `pickChoices` but limited to `NPC_ELIGIBLE` types (Speed Boost, Size Surge, Regeneration, Split Shield)
+- **`getTotalAppliedLevels()`** — sums all values in `appliedCounts`; used by `spawnNPCsForEvolvingStage()` to seed NPC upgrades relative to player progress
+- **`applyRandomNPCUpgrade(NPC)`** — picks one random NPC-eligible upgrade and applies it; used for both auto NPC upgrades and evolving stage seeding
+- **Adding a new upgrade:** extend `UpgradeType`, add a `case` in `applyUpgradeOnce` (and `applyNPCUpgrade` if NPC-eligible), add to `NPC_ELIGIBLE` if applicable
+
+### `UpgradeType.java`
+- Enum of all 8 upgrade types with `displayName` and `description` fields
+- **NPC-eligible (both player and NPC):** `SPEED_BOOST`, `SIZE_BOOST`, `REGENERATION`, `SPLIT_SHIELD`
+- **Player-only:** `DENSITY_BOOST` (Bountiful World), `DIVERGENCY_BOOST` (Big Feast), `MAGNET`, `DODGE` (one-time SPACE dash)
+- Used as keys in `UpgradeManager.appliedCounts` map and in `UpgradeOffer` instances
+
+### `UpgradeOffer.java`
+- Represents a single upgrade choice displayed on an upgrade card
+- **Fields:** `type` (UpgradeType), `targetLevel` (int after accepting), `fromLevel` (int before), `displayName` (with level suffix and rarity tag), `description` (flavor text)
+- **Rarity weights** (by target level): COMMON lv1=100, UNCOMMON lv2=55, RARE lv3=28/lv4=11, LEGENDARY lv5=4; +2 level jumps apply `EPIC_JUMP_MULT` (0.25×) or `LEGENDARY_JUMP_MULT` (0.08×) on top
+- Constructed by `UpgradeManager.pickChoices()` — not instantiated directly
+
+### `HUD.java`
 - Pure data class (no longer extends `JPanel`)
 - `score` — integer reflecting 10x the player cell's current radius (`ceil(cellRad * 10)`)
-- `elapsedTime` — milliseconds since `startTime`; reset by `resetTime()` on easter egg trigger
+- `elapsedTime` — milliseconds since `startTime`; reset by `resetTime()`
 - `updateElapsedTime()` — renamed from `getElapsedTime()` for clarity (has side effect of updating `elapsedTime`)
 
 ### `Background.java`
@@ -310,7 +335,7 @@ Note: Assets (`.png`, `.wav`) live in `src/` alongside Java files. The build scr
   2. Fills viewport with a `GradientPaint` derived from `Color.getHSBColor(phase, ...)`
   3. Moves each blob with toroidal wrap, shifts its hue, draws it as a `RadialGradientPaint` oval if visible
 
-### `MenuBackground.java` *(new — extracted)*
+### `MenuBackground.java`
 - Reusable animated gradient background with floating translucent circles for menu panels
 - **Constructor:** `MenuBackground()` — initializes circle positions, velocities, sizes, colors
 - **`start()`/`stop()`** — manages Swing `Timer` at 30ms for animation
@@ -318,7 +343,7 @@ Note: Assets (`.png`, `.wav`) live in `src/` alongside Java files. The build scr
 - **Static helpers:** `drawHighScore(Graphics2D, width)`, `drawTitle(Graphics2D, title, width)` — shared HUD elements for menu panels
 - Used by `MainPanel`, `OptionsPanel`, `WorldSettingsPanel` — eliminates ~90 lines of duplicated background rendering
 
-### `ToneGenerator.java` *(new — extracted)*
+### `ToneGenerator.java`
 - Low-level programmatic audio tone synthesis shared by all sound effects
 - **`Waveform` functional interface:** `double sample(int index)` — defines a waveform as a lambda
 - **`playTone(durationMs, waveform)`** — renders waveform to byte buffer and plays via `SourceDataLine` on a daemon thread
@@ -328,7 +353,7 @@ Note: Assets (`.png`, `.wav`) live in `src/` alongside Java files. The build scr
 - **`lerp(a, b, t)`** — linear interpolation utility
 - Eliminates ~200 lines of duplicated audio byte-buffer boilerplate from Sound.java
 
-### `MainPanel.java` *(updated)*
+### `MainPanel.java`
 - Main menu with START, OPTIONS, EXIT `StyledButton` instances (modern animated buttons)
 - Button clicks play programmatic `Sound.playClickSound()` (no .wav needed)
 - **Uses `MenuBackground`** for animated gradient rendering (replaces inline implementation)
@@ -349,7 +374,7 @@ Note: Assets (`.png`, `.wav`) live in `src/` alongside Java files. The build scr
 - Ctrl+I / Meta+I keyboard shortcut (via `getRootPane().getInputMap`) also closes the dialog
 - **Evolving mode section** — shown when `gamePanel.isEvolvingMode()`: displays current stage (`"Stage N (Evolving Mode active)"` or `"N/A"`), and NPC upgrade diversity table (HTML-formatted map of each `UpgradeType` to count of NPCs holding it, plus count of NPCs with zero upgrades)
 
-### `Sound.java` *(refactored — delegates to ToneGenerator)*
+### `Sound.java`
 - Wraps `javax.sound.sampled.Clip` for `.wav` playback
 - `static boolean soundEnabled = true` — respects this flag; set to `false` to mute all sounds
 - Constructor: `new Sound(filename, soundSeconds)`
@@ -364,7 +389,7 @@ Note: Assets (`.png`, `.wav`) live in `src/` alongside Java files. The build scr
   - `playClickSound()` — crisp descending click tone (60 ms)
 - Reduced from ~346 lines to ~160 lines via ToneGenerator extraction
 
-### `OptionsPanel.java` *(updated)*
+### `OptionsPanel.java`
 - All buttons use `StyledButton` with `GameConstants.BTN_ON`/`BTN_OFF` colors for toggle states
 - **SOUND button:** toggles `Sound.soundEnabled`; dynamically changes button color
 - **COLOR button:** cycles `GamePanel.playerColorIndex` through `GameConstants.CELL_COLORS[]`
@@ -382,6 +407,12 @@ Note: Assets (`.png`, `.wav`) live in `src/` alongside Java files. The build scr
 - `setBaseColor(Color)` — changes the button's color scheme dynamically
 - Used throughout MainPanel, OptionsPanel, and GamePanel (restart button)
 
+### `DivisionEffect.java`
+- Division split animation played when a cell is split/divided
+- Renders a bezier-curve arc that expands outward from the split point
+- `update()` advances animation frame; `draw(Graphics2D)` renders the arc; `finished` flag when done
+- Created by `CollisionHandler` at the contact point during shave events; limited to `GameConstants.MAX_DIVISION_EFFECTS`
+
 ### `EatEffect.java`
 - Particle burst animation when a cell is eaten
 - Spawns 6–16 colored particles radiating outward from the eat point
@@ -391,10 +422,11 @@ Note: Assets (`.png`, `.wav`) live in `src/` alongside Java files. The build scr
 
 ### `ContactEffect.java`
 - Curvy ripple arc animation at cell contact points
-- **Division contact mode** (isDivisionContact=true): 4 pulsing arcs, 40 ticks, used during division buildup
-- **Bounce mode** (isDivisionContact=false): 3 arcs, 20 ticks, used when touching an uneatable cell
+- **Shave contact mode** (isDivisionContact=true): 4 pulsing arcs, 40 ticks, used during active shave/erosion; spawned periodically by `shaveTarget()` at the attacker/target midpoint
+- **Bounce mode** (isDivisionContact=false): 3 arcs, 20 ticks, used when touching a cell that cannot be eaten or shaved
 - Arcs are quadratic bezier curves radiating outward with expanding spread
-- Division mode has pulsing color brightness; bounce mode uses solid color
+- Shave mode has pulsing color brightness; bounce mode uses solid color
+- Note: `isDivisionContact` field name is a legacy artifact — "division" now means "shave contact"
 
 ---
 
@@ -530,8 +562,8 @@ public static final Color[] CELL_COLORS = {BLACK, BLUE, CYAN, DARK_GRAY, GRAY, G
 20. **Panel switching must call `repaint()`** — always call `mainClass.repaint()` after `mainClass.revalidate()` when swapping panels, otherwise stale rendering artifacts persist in fullscreen mode.
 21. **All panels must set `setPreferredSize()`** — in addition to `setSize()`, panels must set preferred size to `(SCREEN_WIDTH, SCREEN_HEIGHT)` for proper layout in the content pane.
 22. **Food cells are immutable** — food cells cannot move, cannot eat other cells, and their category distribution (Small 90% / Medium 7% / Large 3%) cannot be changed in-game. Density is configurable.
-24. **All cell radii are `double`** — `cellRad`, `x`, `y`, `speedX`, `speedY` are all `double` in `Cell.java`; cast to `int` only for rendering (`Math.round()` for `drawCell`/`fillOval`).
 23. **NPC AI has difficulty-based imperfection** — `errorChance`, `steerJitter`, and `moodChangeChance` are per-difficulty instance fields in `NPC.Difficulty` enum; EASY is most imprecise, HARD is most precise; do not remove these without team agreement.
+24. **All cell radii are `double`** — `cellRad`, `x`, `y`, `speedX`, `speedY` are all `double` in `Cell.java`; cast to `int` only for rendering (`Math.round()` for `drawCell`/`fillOval`).
 25. **Use `StyledButton` for all buttons** — never use plain `JButton` in UI panels; `StyledButton` provides consistent modern look with hover/press animations.
 26. **Fixed speed for all cells** — `DEFAULT_SPEED = 3` for both player and NPCs; dev log speed override is preserved for debugging but dynamic speed scaling has been removed.
 27. **Visual effects use `CopyOnWriteArrayList`** — `eatEffects`, `contactEffects`, and `divisionEffects` are thread-safe lists updated in the game thread and drawn in `paintComponent`.
@@ -544,19 +576,18 @@ public static final Color[] CELL_COLORS = {BLACK, BLUE, CYAN, DARK_GRAY, GRAY, G
 34. **Pre-game settings go through WorldSettingsPanel** — START button on MainPanel navigates to WorldSettingsPanel; player configures name, NPC count, world size, and cell density before starting; BACK button cancels without starting a game.
 35. **Settings persistence via GameSettings** — save/load settings to `.cfg` files in `saves/` directory; max 3 save files; supports rename, overwrite, and restore-to-defaults; `applyToGame()` writes values to game statics, `readFromGame()` reads them.
 36. **Maximum 3 save files** — enforced in `WorldSettingsPanel` save button; when limit reached, user must overwrite an existing save.
-37. **Easter egg freezes player score** — `easterEggActive` flag prevents player from eating food or NPCs during the easter egg; `finalElapsedTime` preserves the actual game time before the easter egg timer reset.
-38. **NPCs receive upgrades automatically** — each NPC has its own `UpgradeManager` instance; when an NPC crosses a score threshold, a random upgrade from the NPC-eligible pool (Speed Boost, Size Surge, Regeneration, Split Shield) is applied instantly with no UI; `upgradeCount` drives the gold star badge drawn by `GameRenderer`.
-39. **Upgrade buttons must not steal focus** — `StyledButton` instances in the upgrade selection overlay must have `setFocusable(false)` to prevent them from stealing keyboard focus from `GamePanel`; after dismissal, `requestFocusInWindow()` must be called to restore key input.
-40. **Magnet is player-only** — food cells within `magnetRadius` are pulled toward the player each tick; NPCs do not get Magnet (their navigation AI already steers toward food).
-41. **Regeneration applies to both player and NPCs** — each tick, `cellRad += REGEN_RATE_PER_LEVEL * regenLevel` for any entity with `regenLevel > 0`; applies in `GamePanel.applyRegen()`.
-42. **Split Shield reduces shave damage** — `splitShieldFactor` starts at 1.0 (full damage) and decreases by `SPLIT_SHIELD_PER_LEVEL` per upgrade toward `SPLIT_SHIELD_MIN` (0.25); the shave mechanic multiplies area loss by this factor.
-43. **Evolving mode uses a separate constructor** — `GamePanel(MainClass, EvolvingProgressSave)` sets `evolvingMode=true`; the standard constructor sets `evolvingMode=false`. Never call `spawnNPCsForEvolvingStage()` from standard mode.
-44. **Evolving NPC seeding formula** — `minUpgrades = min(max(0, stage-1), playerUpgrades)`, `maxUpgrades = playerUpgrades`; each NPC receives a random number of upgrades in `[minUpgrades, maxUpgrades]` via `applyRandomNPCUpgrade()`.
-45. **Stage transition uses `stageTransitioning` flag** — set by `triggerStageComplete()`; the game loop skips all logic while this is true (same as `gameOver`); cleared by `nextStage()` once the player clicks "NEXT STAGE ▶".
-46. **Evolving progress is auto-saved** — `updateAndSave()` is called on stage clear, game over, and `returnToMenu()`; never let the player lose stage/score progress due to missing a save call.
-47. **Evolving save files are per-player-name** — stored in `saves/evolving/<sanitized-name>.ecfg`; filename sanitized by replacing non-alphanumeric characters with `_`; player name is stored inside the file for display.
-48. **`UpgradeManager.getTotalAppliedLevels()`** — sums all values in `appliedCounts`; used by `spawnNPCsForEvolvingStage()` to determine how many upgrades the player currently has for seeding NPCs.
-49. **`UpgradeManager.applyRandomNPCUpgrade(NPC)`** — picks from `pickNPCChoices()` and applies one random NPC-eligible upgrade; used for both automatic per-tick NPC upgrades and evolving stage seeding.
+37. **NPCs receive upgrades automatically** — each NPC has its own `UpgradeManager` instance; when an NPC crosses a score threshold, a random upgrade from the NPC-eligible pool (Speed Boost, Size Surge, Regeneration, Split Shield) is applied instantly with no UI; `upgradeCount` drives the gold star badge drawn by `GameRenderer`.
+38. **Upgrade buttons must not steal focus** — `StyledButton` instances in the upgrade selection overlay must have `setFocusable(false)` to prevent them from stealing keyboard focus from `GamePanel`; after dismissal, `requestFocusInWindow()` must be called to restore key input.
+39. **Magnet is player-only** — food cells within `magnetRadius` are pulled toward the player each tick; NPCs do not get Magnet (their navigation AI already steers toward food).
+40. **Regeneration applies to both player and NPCs** — each tick, `cellRad += REGEN_RATE_PER_LEVEL * regenLevel` for any entity with `regenLevel > 0`; applies in `GamePanel.applyRegen()`.
+41. **Split Shield reduces shave damage** — `splitShieldFactor` starts at 1.0 (full damage) and decreases by `SPLIT_SHIELD_PER_LEVEL` per upgrade toward `SPLIT_SHIELD_MIN` (0.25); the shave mechanic multiplies area loss by this factor.
+42. **Evolving mode uses a separate constructor** — `GamePanel(MainClass, EvolvingProgressSave)` sets `evolvingMode=true`; the standard constructor sets `evolvingMode=false`. Never call `spawnNPCsForEvolvingStage()` from standard mode.
+43. **Evolving NPC seeding formula** — `minUpgrades = min(max(0, stage-1), playerUpgrades)`, `maxUpgrades = playerUpgrades`; each NPC receives a random number of upgrades in `[minUpgrades, maxUpgrades]` via `applyRandomNPCUpgrade()`.
+44. **Stage transition uses `stageTransitioning` flag** — set by `triggerStageComplete()`; the game loop skips all logic while this is true (same as `gameOver`); cleared by `nextStage()` once the player clicks "NEXT STAGE ▶".
+45. **Evolving progress is auto-saved** — `updateAndSave()` is called on stage clear, game over, and `returnToMenu()`; never let the player lose stage/score progress due to missing a save call.
+46. **Evolving save files are per-player-name** — stored in `saves/evolving/<sanitized-name>.ecfg`; filename sanitized by replacing non-alphanumeric characters with `_`; player name is stored inside the file for display.
+47. **`UpgradeManager.getTotalAppliedLevels()`** — sums all values in `appliedCounts`; used by `spawnNPCsForEvolvingStage()` to determine how many upgrades the player currently has for seeding NPCs.
+48. **`UpgradeManager.applyRandomNPCUpgrade(NPC)`** — picks from `pickNPCChoices()` and applies one random NPC-eligible upgrade; used for both automatic per-tick NPC upgrades and evolving stage seeding.
 
 ---
 
