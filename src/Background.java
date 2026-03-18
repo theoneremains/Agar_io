@@ -50,15 +50,27 @@ public class Background {
      * Uses current MainClass.WORLD_WIDTH/HEIGHT for toroidal wrapping so it
      * adapts to world size changes between game sessions.
      *
+     * <p>Blobs whose screen-space radius would exceed {@code MAX_SCREEN_BLOB_RAD}
+     * are skipped.  At high zoom (e.g. 5×) a blob of world radius 300 would
+     * become a 1500-px RadialGradientPaint oval — extremely expensive.  The
+     * base gradient already covers the background at that scale.
+     *
      * @param g            the Graphics2D context
      * @param cameraX      current horizontal camera offset
      * @param cameraY      current vertical camera offset
      * @param visibleWidth  visible world width
      * @param visibleHeight visible world height
+     * @param zoom          current camera zoom factor
      */
-    public void drawBackground(Graphics2D g, int cameraX, int cameraY, int visibleWidth, int visibleHeight) {
+    public void drawBackground(Graphics2D g, int cameraX, int cameraY,
+                                int visibleWidth, int visibleHeight, double zoom) {
         int worldW = MainClass.WORLD_WIDTH;
         int worldH = MainClass.WORLD_HEIGHT;
+
+        // Maximum screen-space radius before we skip drawing a blob.
+        // A RadialGradientPaint oval larger than this is too expensive and
+        // invisible at the zoom level anyway (the gradient center is off-screen).
+        final float MAX_SCREEN_BLOB_RAD = 400f;
 
         phase = (phase + 0.002f) % 1f;
 
@@ -78,6 +90,10 @@ public class Background {
             blobHue[i] = (blobHue[i] + 0.0003f) % 1f;
 
             float s = blobSize[i];
+
+            // Skip blobs that would be too large in screen space — their
+            // RadialGradientPaint covers thousands of pixels and kills performance.
+            if (s * zoom > MAX_SCREEN_BLOB_RAD) continue;
 
             // Skip blobs outside viewport
             if (blobX[i] + s < cameraX || blobX[i] - s > cameraX + visibleWidth) continue;
