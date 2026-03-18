@@ -53,6 +53,7 @@ public class GameRenderer {
         drawHUD(g2d);
         drawScoreboard(g2d);
         drawUpgradeOverlay(g2d);
+        drawMaxUpgradesFlash(g2d);
         drawPausedOverlay(g2d);
         if (game.isStageTransitioning()) {
             drawStageCompleteOverlay(g2d);
@@ -544,6 +545,39 @@ public class GameRenderer {
         String prompt = "Your cell, upgrades, and score carry over to the next stage.";
         FontMetrics prfm = g2d.getFontMetrics();
         g2d.drawString(prompt, (MainClass.SCREEN_WIDTH - prfm.stringWidth(prompt)) / 2, 325);
+    }
+
+    private void drawMaxUpgradesFlash(Graphics2D g2d) {
+        long remaining = game.maxUpgradesFlashUntil - System.currentTimeMillis();
+        if (remaining <= 0) return;
+
+        // Fade out over the last 800 ms
+        float alpha = Math.min(1f, remaining / 800f);
+        int w = MainClass.SCREEN_WIDTH;
+        int h = MainClass.SCREEN_HEIGHT;
+
+        g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha * 0.75f));
+        g2d.setColor(new Color(20, 20, 40));
+        int boxW = 480, boxH = 80;
+        int boxX = (w - boxW) / 2;
+        int boxY = h / 2 - boxH / 2;
+        g2d.fillRoundRect(boxX, boxY, boxW, boxH, 20, 20);
+
+        g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, alpha));
+        g2d.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
+        g2d.setFont(new Font(GameConstants.FONT_FAMILY, Font.BOLD, 22));
+        g2d.setColor(new Color(220, 180, 255));
+        String msg = "★ MAX UPGRADES REACHED ★";
+        FontMetrics fm = g2d.getFontMetrics();
+        g2d.drawString(msg, (w - fm.stringWidth(msg)) / 2, boxY + boxH / 2 - 4);
+
+        g2d.setFont(new Font(GameConstants.FONT_FAMILY, Font.PLAIN, 13));
+        g2d.setColor(new Color(180, 180, 200));
+        String sub = "All upgrades are fully maxed!";
+        fm = g2d.getFontMetrics();
+        g2d.drawString(sub, (w - fm.stringWidth(sub)) / 2, boxY + boxH / 2 + 18);
+
+        g2d.setComposite(AlphaComposite.getInstance(AlphaComposite.SRC_OVER, 1f));
     }
 
     private void drawPausedOverlay(Graphics2D g2d) {

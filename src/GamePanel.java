@@ -110,6 +110,12 @@ public class GamePanel extends JPanel implements KeyListener {
      */
     public volatile boolean upgradeSelecting = false;
 
+    /**
+     * System.currentTimeMillis() deadline until which a "MAX UPGRADES REACHED"
+     * flash message is drawn on screen (0 = not active).
+     */
+    public long maxUpgradesFlashUntil = 0;
+
     /** Saved elapsed time (ms) when the player dies */
     private long finalElapsedTime = -1;
 
@@ -835,9 +841,20 @@ public class GamePanel extends JPanel implements KeyListener {
      * {@code true} at this point (set by the game thread).
      */
     private void showUpgradeSelection() {
+        List<UpgradeOffer> choices = upgradeManager.getCurrentChoices();
+
+        // All upgrades are fully maxed — no choices available
+        if (choices.isEmpty()) {
+            upgradeManager.cancelPendingUpgrade();
+            upgradeSelecting = false;
+            maxUpgradesFlashUntil = System.currentTimeMillis() + 2500;
+            requestFocusInWindow();
+            repaint();
+            return;
+        }
+
         setLayout(null);
 
-        List<UpgradeOffer> choices = upgradeManager.getCurrentChoices();
         int n = choices.size();
 
         int totalW = n * GameConstants.UPGRADE_CARD_WIDTH + (n - 1) * GameConstants.UPGRADE_CARD_GAP;
