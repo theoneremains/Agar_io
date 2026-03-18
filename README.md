@@ -19,9 +19,21 @@ As you grow, you'll earn **upgrades** at score milestones — choose from 3 rand
 
 Compete against NPC players who also move, eat, grow, and upgrade. Eliminate all NPCs to win! Aim for the highest score!
 
+### Infinite Evolving Cells Mode
+
+An endless challenge unlocked from the main menu's **EVOLVING MODE** button. Instead of a fixed NPC count and a single victory, you progress through infinite stages:
+
+- **Infinite stages** — there is no final win; survive as long as possible and reach the highest stage
+- **Stage scaling** — each stage adds more NPCs (starting at 5, +3 per stage, up to 30) and shifts the difficulty mix toward HARD
+- **Carry-over** — your cell size, speed, upgrades, and score all carry into the next stage
+- **NPC seeding** — enemies start each stage with upgrades proportional to your own upgrade count and the current stage number, keeping the challenge fair
+- **Per-player saves** — progress (max stage reached, highest score) is saved automatically to `saves/evolving/<name>.ecfg` by player name; load a previous run from the entry screen
+- **Developer log** — the Ctrl+I dev log shows current stage and NPC upgrade diversity for debugging
+
 Controls: **WASD** or **Arrow Keys** to move, **SPACE** to dodge (if unlocked), **ESC** to return to the main menu, **Ctrl+I** (or **Cmd+I** on macOS) to open the developer log.
 
 ## Features
+- **Infinite Evolving Cells mode** — endless staged challenge from the main menu; NPC count and difficulty auto-scale each stage; player size, speed, upgrades, and score carry over; NPCs seeded with upgrades proportional to player progress; per-player progress saved in `saves/evolving/`
 - **Modern UI** — styled buttons with rounded corners, gradient fills, hover glow, and press animations; dark themed animated gradient backgrounds with floating translucent circles; modern styled dialogs replacing system message boxes
 - **Ambient sounds** — soothing synthesized pad music in the main menu; evolving pentatonic chord progression during gameplay; all programmatically generated
 - **Roguelite upgrades** — 8 upgrade types awarded at score thresholds; choose 1 of 3 random options each time; NPCs also receive upgrades automatically
