@@ -6,5 +6,5 @@ dist/
 saves/
 
 # IntelliJ IDEA build output (keep tracked .class files that were already committed)
-# Uncomment the line below if you want to stop tracking compiled classes entirely:
-# out/
+# out/ is excluded — compiled .class files should not be tracked
+out/
