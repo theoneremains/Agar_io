@@ -98,6 +98,20 @@ public final class GameConstants {
     public static final String SAVES_DIR   = "saves";
     public static final String SAVE_EXT    = ".cfg";
 
+    // ── Evolving Mode ────────────────────────────────────────────────────
+    /** Directory for Infinite Evolving Cells mode progress saves */
+    public static final String EVOLVING_SAVES_DIR = "saves/evolving";
+    /** File extension for evolving mode save files */
+    public static final String EVOLVING_SAVE_EXT  = ".ecfg";
+    /** NPC count at stage 1 */
+    public static final int EVOLVING_BASE_NPC_COUNT = 5;
+    /** Additional NPCs added per stage */
+    public static final int EVOLVING_NPC_INCREMENT  = 3;
+    /** Maximum NPC count across all stages */
+    public static final int EVOLVING_MAX_NPC_COUNT  = 30;
+    /** UI color for the Evolving Mode button */
+    public static final Color BTN_PURPLE = new Color(100, 50, 160);
+
     // ── Roguelite Upgrades ───────────────────────────────────────────────
     /** Score thresholds at which the player is offered an upgrade choice */
     public static final int[] UPGRADE_SCORE_THRESHOLDS = {

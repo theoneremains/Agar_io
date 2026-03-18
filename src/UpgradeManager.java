@@ -182,6 +182,28 @@ public class UpgradeManager {
         return Collections.unmodifiableMap(appliedCounts);
     }
 
+    /**
+     * Returns the total number of upgrade levels applied (sum of all upgrade levels).
+     * Used by the Evolving Mode to calculate how many upgrades to seed on NPCs.
+     */
+    public int getTotalAppliedLevels() {
+        int total = 0;
+        for (int v : appliedCounts.values()) total += v;
+        return total;
+    }
+
+    /**
+     * Applies a single random NPC-eligible upgrade to the given NPC.
+     * Used for seeding initial upgrades on NPCs at the start of each evolving mode stage.
+     * @param npc the target NPC
+     */
+    public void applyRandomNPCUpgrade(NPC npc) {
+        List<UpgradeType> choices = pickNPCChoices();
+        if (!choices.isEmpty()) {
+            applyNPCUpgrade(choices.get(random.nextInt(choices.size())), npc);
+        }
+    }
+
     // ── Apply Player Upgrade ─────────────────────────────────────────────
 
     /**

@@ -54,6 +54,9 @@ public class GameRenderer {
         drawScoreboard(g2d);
         drawUpgradeOverlay(g2d);
         drawPausedOverlay(g2d);
+        if (game.isStageTransitioning()) {
+            drawStageCompleteOverlay(g2d);
+        }
         if (game.isGameOver()) {
             drawGameOverOverlay(g2d);
         }
@@ -167,6 +170,17 @@ public class GameRenderer {
 
         long displayElapsed = game.getDisplayElapsedTime();
         g2d.drawString("Elapsed Time " + displayElapsed / 1000, 490, 20);
+
+        // Stage number in evolving mode (top-center)
+        if (game.isEvolvingMode()) {
+            int stage = game.getCurrentStage();
+            String stageStr = "STAGE  " + stage;
+            g2d.setFont(new Font(GameConstants.FONT_FAMILY, Font.BOLD, 18));
+            g2d.setColor(new Color(200, 160, 255));
+            FontMetrics sfm = g2d.getFontMetrics();
+            int sx = (MainClass.SCREEN_WIDTH - sfm.stringWidth(stageStr)) / 2;
+            g2d.drawString(stageStr, sx, 22);
+        }
 
         // Active upgrade indicators (bottom-left)
         int indicatorX = 10;
@@ -473,6 +487,65 @@ public class GameRenderer {
 
     // ── Other Overlays ───────────────────────────────────────────────────
 
+    /**
+     * Draws the stage-complete overlay shown between evolving mode stages.
+     * The "NEXT STAGE" button is a Swing component added by GamePanel; this
+     * method draws the visual background and informational text.
+     */
+    private void drawStageCompleteOverlay(Graphics2D g2d) {
+        // Dark overlay with purple tint
+        g2d.setColor(new Color(20, 10, 40, 200));
+        g2d.fillRect(0, 0, MainClass.SCREEN_WIDTH, MainClass.SCREEN_HEIGHT);
+
+        int stage = game.getCurrentStage();
+
+        // "STAGE CLEARED!" title
+        g2d.setFont(new Font(GameConstants.FONT_FAMILY_MONO, Font.BOLD, 60));
+        g2d.setColor(new Color(200, 160, 255));
+        String cleared = "STAGE  " + stage + "  CLEARED!";
+        FontMetrics cfm = g2d.getFontMetrics();
+        g2d.drawString(cleared, (MainClass.SCREEN_WIDTH - cfm.stringWidth(cleared)) / 2, 130);
+
+        // Star row for visual flair
+        g2d.setFont(new Font(GameConstants.FONT_FAMILY, Font.PLAIN, 32));
+        g2d.setColor(new Color(255, 215, 0, 210));
+        String stars = "\u2605 \u2605 \u2605";
+        FontMetrics sfm = g2d.getFontMetrics();
+        g2d.drawString(stars, (MainClass.SCREEN_WIDTH - sfm.stringWidth(stars)) / 2, 180);
+
+        // Next stage preview
+        int nextStage = stage + 1;
+        int nextNPCCount = Math.min(
+            GameConstants.EVOLVING_BASE_NPC_COUNT + (nextStage - 1) * GameConstants.EVOLVING_NPC_INCREMENT,
+            GameConstants.EVOLVING_MAX_NPC_COUNT);
+
+        g2d.setFont(new Font(GameConstants.FONT_FAMILY, Font.BOLD, 22));
+        g2d.setColor(new Color(220, 210, 255));
+        String nextTitle = "Incoming: Stage " + nextStage;
+        FontMetrics ntfm = g2d.getFontMetrics();
+        g2d.drawString(nextTitle, (MainClass.SCREEN_WIDTH - ntfm.stringWidth(nextTitle)) / 2, 230);
+
+        g2d.setFont(new Font(GameConstants.FONT_FAMILY, Font.PLAIN, 16));
+        g2d.setColor(new Color(180, 170, 220));
+        String preview = nextNPCCount + " NPCs  \u2014  harder difficulty distribution  \u2014  NPCs start with your upgrade count";
+        FontMetrics pfm = g2d.getFontMetrics();
+        g2d.drawString(preview, (MainClass.SCREEN_WIDTH - pfm.stringWidth(preview)) / 2, 260);
+
+        // Current score and progress
+        g2d.setFont(new Font(GameConstants.FONT_FAMILY, Font.BOLD, 16));
+        g2d.setColor(new Color(255, 255, 150));
+        String scoreStr = "Current Score: " + game.getHUD().score;
+        FontMetrics scfm = g2d.getFontMetrics();
+        g2d.drawString(scoreStr, (MainClass.SCREEN_WIDTH - scfm.stringWidth(scoreStr)) / 2, 295);
+
+        // Prompt
+        g2d.setFont(new Font(GameConstants.FONT_FAMILY, Font.ITALIC, 14));
+        g2d.setColor(new Color(160, 150, 200));
+        String prompt = "Your cell, upgrades, and score carry over to the next stage.";
+        FontMetrics prfm = g2d.getFontMetrics();
+        g2d.drawString(prompt, (MainClass.SCREEN_WIDTH - prfm.stringWidth(prompt)) / 2, 325);
+    }
+
     private void drawPausedOverlay(Graphics2D g2d) {
         // Only show pause overlay for dev-log pause, not for upgrade selection
         if (!game.isPaused() || game.isGameOver() || game.upgradeSelecting) return;
@@ -488,22 +561,46 @@ public class GameRenderer {
     }
 
     private void drawGameOverOverlay(Graphics2D g2d) {
-        boolean isVictory = game.isVictory();
+        boolean isVictory     = game.isVictory();
+        boolean isEvolvingMode = game.isEvolvingMode();
 
-        // Dark overlay (gold tint for victory, dark for loss)
-        g2d.setColor(isVictory ? new Color(40, 30, 0, 200) : new Color(0, 0, 0, 180));
+        // Dark overlay (gold tint for victory, purple tint for evolving, dark for loss)
+        if (isVictory) {
+            g2d.setColor(new Color(40, 30, 0, 200));
+        } else if (isEvolvingMode) {
+            g2d.setColor(new Color(20, 10, 40, 200));
+        } else {
+            g2d.setColor(new Color(0, 0, 0, 180));
+        }
         g2d.fillRect(0, 0, MainClass.SCREEN_WIDTH, MainClass.SCREEN_HEIGHT);
 
-        // Title: VICTORY or GAME OVER
-        String title = isVictory ? "VICTORY!" : "GAME OVER";
-        g2d.setColor(isVictory ? new Color(255, 220, 0) : Color.RED);
+        // Title
+        String title;
+        Color titleColor;
+        if (isEvolvingMode) {
+            title = "GAME OVER";
+            titleColor = new Color(200, 100, 255);
+        } else if (isVictory) {
+            title = "VICTORY!";
+            titleColor = new Color(255, 220, 0);
+        } else {
+            title = "GAME OVER";
+            titleColor = Color.RED;
+        }
+        g2d.setColor(titleColor);
         g2d.setFont(new Font(GameConstants.FONT_FAMILY_MONO, Font.BOLD, 64));
         FontMetrics tfm = g2d.getFontMetrics();
         int tx = (MainClass.SCREEN_WIDTH - tfm.stringWidth(title)) / 2;
         g2d.drawString(title, tx, 120);
 
-        // Victory sub-message
-        if (isVictory) {
+        // Evolving mode: stage reached sub-title
+        if (isEvolvingMode) {
+            g2d.setFont(new Font(GameConstants.FONT_FAMILY, Font.BOLD, 22));
+            g2d.setColor(new Color(220, 180, 255));
+            String stageLine = "You reached Stage " + game.getCurrentStage() + "!";
+            FontMetrics slm = g2d.getFontMetrics();
+            g2d.drawString(stageLine, (MainClass.SCREEN_WIDTH - slm.stringWidth(stageLine)) / 2, 160);
+        } else if (isVictory) {
             g2d.setFont(new Font(GameConstants.FONT_FAMILY, Font.BOLD, 20));
             g2d.setColor(new Color(255, 240, 180));
             String sub = "You eliminated all opponents!";
@@ -515,9 +612,10 @@ public class GameRenderer {
         List<Object[]> board = game.getScoreboard();
         g2d.setFont(new Font(GameConstants.FONT_FAMILY_MONO, Font.BOLD, 20));
         g2d.setColor(Color.WHITE);
-        String subTitle = "Final Standings";
+        String subTitle = isEvolvingMode ? "Final Score" : "Final Standings";
         FontMetrics sfm = g2d.getFontMetrics();
-        g2d.drawString(subTitle, (MainClass.SCREEN_WIDTH - sfm.stringWidth(subTitle)) / 2, 170);
+        g2d.drawString(subTitle, (MainClass.SCREEN_WIDTH - sfm.stringWidth(subTitle)) / 2,
+            isEvolvingMode ? 195 : 170);
 
         int y = 210;
         int rank = 1;
