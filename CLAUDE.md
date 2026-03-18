@@ -300,11 +300,11 @@ Note: Assets (`.png`, `.wav`) live in `src/` alongside Java files. The build scr
 ### `UpgradeManager.java`
 - Manages roguelite upgrade progression for a single entity (the player or one NPC)
 - **Score thresholds:** watches `hud.score` (player) or NPC score each tick; triggers an upgrade offer when the next threshold is crossed
-- **Player flow:** `checkAndOfferUpgrade()` detects a ready upgrade → `GamePanel.showUpgradeSelection()` presents 3 random `UpgradeOffer` choices; player picks one → `applyUpgrade(UpgradeOffer)` applies it and advances `nextThresholdIndex`
-- **NPC flow:** `checkAndAutoApplyForNPC(NPC)` applies a random NPC-eligible upgrade silently with no UI; `triggerNPCKillUpgrade(NPC)` grants a bonus upgrade when the NPC kills another NPC
-- **`applyUpgradeOnce(UpgradeType, NPC?)`** — central dispatch: increments `appliedCounts`, then delegates to the appropriate stat mutation (speed, size, regen rate, shield factor, density, food size, magnet radius, dodge unlock)
-- **`pickChoices(int n)`** — builds weighted random pool of `UpgradeOffer` instances from all non-maxed upgrade types; respects `MAX_UPGRADE_LEVEL` (5) cap
-- **`pickNPCChoices()`** — same as `pickChoices` but limited to `NPC_ELIGIBLE` types (Speed Boost, Size Surge, Regeneration, Split Shield)
+- **Player flow:** `checkScore(int score)` detects when the next threshold is crossed → `GamePanel.showUpgradeSelection()` presents 3 random `UpgradeOffer` choices; player picks one → `applyUpgrade(UpgradeOffer, GamePanel)` increments `appliedCounts` and calls `applyUpgradeOnce`
+- **NPC flow:** `checkAndAutoApplyForNPC(int score, NPC)` applies a random NPC-eligible upgrade silently with no UI; `triggerNPCKillUpgrade(NPC)` grants a bonus upgrade when the NPC kills another NPC
+- **`applyUpgradeOnce(UpgradeType, GamePanel)`** — private central dispatch for player upgrades: delegates to the appropriate stat mutation (speed, size, regen rate, shield factor, density, food size, magnet radius, dodge unlock); NPCs use the separate `applyNPCUpgrade(UpgradeType, NPC)` method
+- **`pickPlayerChoices()`** — private; builds weighted random pool of `UpgradeOffer` instances from all non-maxed upgrade types; respects `MAX_UPGRADE_LEVEL` (5) cap
+- **`pickNPCChoices()`** — same as `pickPlayerChoices` but limited to `NPC_ELIGIBLE` types (Speed Boost, Size Surge, Regeneration, Split Shield)
 - **`getTotalAppliedLevels()`** — sums all values in `appliedCounts`; used by `spawnNPCsForEvolvingStage()` to seed NPC upgrades relative to player progress
 - **`applyRandomNPCUpgrade(NPC)`** — picks one random NPC-eligible upgrade and applies it; used for both auto NPC upgrades and evolving stage seeding
 - **Adding a new upgrade:** extend `UpgradeType`, add a `case` in `applyUpgradeOnce` (and `applyNPCUpgrade` if NPC-eligible), add to `NPC_ELIGIBLE` if applicable
@@ -408,10 +408,9 @@ Note: Assets (`.png`, `.wav`) live in `src/` alongside Java files. The build scr
 - Used throughout MainPanel, OptionsPanel, and GamePanel (restart button)
 
 ### `DivisionEffect.java`
-- Division split animation played when a cell is split/divided
-- Renders a bezier-curve arc that expands outward from the split point
-- `update()` advances animation frame; `draw(Graphics2D)` renders the arc; `finished` flag when done
-- Created by `CollisionHandler` at the contact point during shave events; limited to `GameConstants.MAX_DIVISION_EFFECTS`
+- Division split animation: two oval cell-halves that follow quadratic bezier curves moving apart perpendicular to the split angle, with a squish/stretch effect (`squish = 1 + 0.35 * sin(π*t)`) and alpha fade-in (0.4 → 1.0) over 30 ticks (300ms)
+- `update()` advances animation; `draw(Graphics2D)` renders both halves with rotation and squish; `finished` flag when done
+- **Note:** the `divisionEffects` list is maintained in `GamePanel` and iterated by `GameRenderer`, but `new DivisionEffect(...)` is currently never called — the animation is dormant/placeholder as of the current codebase
 
 ### `EatEffect.java`
 - Particle burst animation when a cell is eaten
