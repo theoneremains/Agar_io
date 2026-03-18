@@ -27,6 +27,15 @@ public class GameRenderer {
         g2d.setRenderingHint(RenderingHints.KEY_RENDERING, RenderingHints.VALUE_RENDER_QUALITY);
         g2d.setRenderingHint(RenderingHints.KEY_TEXT_ANTIALIASING, RenderingHints.VALUE_TEXT_ANTIALIAS_ON);
 
+        // While the world is populating skip all expensive world rendering and
+        // just show the loading overlay — this is the primary fix for the startup
+        // lag because the expensive RadialGradientPaint blobs and food rendering
+        // are completely avoided until the world is ready.
+        if (game.worldLoading) {
+            drawLoadingOverlay(g2d);
+            return;
+        }
+
         AffineTransform savedTransform = g2d.getTransform();
 
         int camX = (int) game.getCameraX();
@@ -41,7 +50,7 @@ public class GameRenderer {
         int visibleH = (int) Math.ceil(MainClass.SCREEN_HEIGHT / zoom);
 
         // World-space drawing
-        game.getWorldBackground().drawBackground(g2d, camX, camY, visibleW, visibleH);
+        game.getWorldBackground().drawBackground(g2d, camX, camY, visibleW, visibleH, zoom);
         drawFoodCells(g2d);
         drawNPCs(g2d);
         drawPlayer(g2d);
@@ -52,10 +61,6 @@ public class GameRenderer {
 
         drawHUD(g2d);
         drawScoreboard(g2d);
-        if (game.worldLoading) {
-            drawLoadingOverlay(g2d);
-            return; // nothing else needed during load
-        }
         drawUpgradeOverlay(g2d);
         drawMaxUpgradesFlash(g2d);
         drawPausedOverlay(g2d);
