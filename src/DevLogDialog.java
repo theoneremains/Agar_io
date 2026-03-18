@@ -52,6 +52,10 @@ public class DevLogDialog extends JDialog {
     private JLabel     lblMaxCells;
     private JLabel     lblUpgrades;
 
+    // Evolving mode / NPC upgrade diversity labels
+    private JLabel     lblEvolvingStage;
+    private JLabel     lblNpcUpgradeDiversity;
+
     /**
      * Constructs the developer log dialog.
      * @param owner    The parent JFrame (MainClass).
@@ -254,6 +258,26 @@ public class DevLogDialog extends JDialog {
         content.add(lblFoodCount, fc);
         row++;
 
+        // ── Section: Evolving Mode / NPC Upgrade Diversity ───────────────
+        Color evolveColor = new Color(200, 160, 255);
+        row = addSectionHeader(content, "[ EVOLVING MODE / NPC DIVERSITY ]", secFont, evolveColor, row);
+
+        lc.gridy = row; fc.gridy = row;
+        content.add(makeLabel("Current Stage:", labelFont, evolveColor), lc);
+        lblEvolvingStage = new JLabel();
+        lblEvolvingStage.setForeground(readColor);
+        lblEvolvingStage.setFont(fieldFont);
+        content.add(lblEvolvingStage, fc);
+        row++;
+
+        lc.gridy = row; fc.gridy = row;
+        content.add(makeLabel("NPC Upgrade Diversity:", labelFont, evolveColor), lc);
+        lblNpcUpgradeDiversity = new JLabel();
+        lblNpcUpgradeDiversity.setForeground(readColor);
+        lblNpcUpgradeDiversity.setFont(new Font("Arial", Font.PLAIN, 11));
+        content.add(lblNpcUpgradeDiversity, fc);
+        row++;
+
         // ── Buttons row ──────────────────────────────────────────────────
         JPanel btnRow = new JPanel(new FlowLayout(FlowLayout.RIGHT, 10, 0));
         btnRow.setBackground(new Color(30, 30, 40));
@@ -322,6 +346,41 @@ public class DevLogDialog extends JDialog {
         long npcAlive = gamePanel.getNPCList().stream().filter(n -> n.alive).count();
         lblNpcAlive.setText(String.valueOf(npcAlive) + " / " + gamePanel.getNPCList().size());
         lblFoodCount.setText(String.valueOf(gamePanel.getFoodCells().size()));
+
+        // Evolving mode info
+        if (gamePanel.isEvolvingMode()) {
+            lblEvolvingStage.setText("Stage " + gamePanel.getCurrentStage() + "  (Evolving Mode active)");
+        } else {
+            lblEvolvingStage.setText("N/A  (standard mode)");
+        }
+
+        // NPC upgrade diversity: count each upgrade type across all living NPCs
+        java.util.Map<UpgradeType, Integer> diversity = new java.util.EnumMap<>(UpgradeType.class);
+        int unupgradedCount = 0;
+        for (NPC npc : gamePanel.getNPCList()) {
+            if (!npc.alive) continue;
+            Map<UpgradeType, Integer> npcCounts = npc.upgradeManager.getAppliedCounts();
+            if (npcCounts.isEmpty()) {
+                unupgradedCount++;
+            } else {
+                for (UpgradeType type : npcCounts.keySet()) {
+                    diversity.merge(type, 1, Integer::sum);
+                }
+            }
+        }
+        if (diversity.isEmpty() && unupgradedCount == 0) {
+            lblNpcUpgradeDiversity.setText("No live NPCs");
+        } else {
+            StringBuilder sb = new StringBuilder("<html>");
+            for (Map.Entry<UpgradeType, Integer> e : diversity.entrySet()) {
+                sb.append(e.getKey().displayName).append(": ").append(e.getValue()).append(" NPCs &nbsp; ");
+            }
+            if (unupgradedCount > 0) {
+                sb.append("(no upgrades: ").append(unupgradedCount).append(")");
+            }
+            sb.append("</html>");
+            lblNpcUpgradeDiversity.setText(sb.toString());
+        }
     }
 
     /**

@@ -11,9 +11,10 @@ import java.awt.*;
 @SuppressWarnings({"serial", "this-escape"})
 public class MainPanel extends JPanel {
 
-    private final StyledButton startButton   = new StyledButton("START", GameConstants.BTN_GREEN);
-    private final StyledButton optionsButton = new StyledButton("OPTIONS", GameConstants.BTN_BLUE);
-    private final StyledButton exitButton    = new StyledButton("EXIT", GameConstants.BTN_RED);
+    private final StyledButton startButton    = new StyledButton("START", GameConstants.BTN_GREEN);
+    private final StyledButton evolvingButton = new StyledButton("EVOLVING MODE", GameConstants.BTN_PURPLE);
+    private final StyledButton optionsButton  = new StyledButton("OPTIONS", GameConstants.BTN_BLUE);
+    private final StyledButton exitButton     = new StyledButton("EXIT", GameConstants.BTN_RED);
 
     /** Ambient menu sound line — stopped when leaving the menu */
     private javax.sound.sampled.SourceDataLine ambientLine;
@@ -28,15 +29,17 @@ public class MainPanel extends JPanel {
 
         int btnW = GameConstants.BUTTON_WIDTH + 40;
         int btnH = GameConstants.BUTTON_HEIGHT + 6;
+        int gap  = 14;
+        int totalH = btnH * 4 + gap * 3;
+        int startY = MainClass.SCREEN_HEIGHT / 2 - totalH / 2;
 
-        startButton.setBounds((MainClass.SCREEN_WIDTH - btnW) / 2,
-            MainClass.SCREEN_HEIGHT / 2 - btnH - 20, btnW, btnH);
-        optionsButton.setBounds((MainClass.SCREEN_WIDTH - btnW) / 2,
-            MainClass.SCREEN_HEIGHT / 2 + 5, btnW, btnH);
-        exitButton.setBounds((MainClass.SCREEN_WIDTH - btnW) / 2,
-            MainClass.SCREEN_HEIGHT / 2 + btnH + 30, btnW, btnH);
+        startButton.setBounds((MainClass.SCREEN_WIDTH - btnW) / 2, startY, btnW, btnH);
+        evolvingButton.setBounds((MainClass.SCREEN_WIDTH - btnW) / 2, startY + (btnH + gap), btnW, btnH);
+        optionsButton.setBounds((MainClass.SCREEN_WIDTH - btnW) / 2, startY + (btnH + gap) * 2, btnW, btnH);
+        exitButton.setBounds((MainClass.SCREEN_WIDTH - btnW) / 2, startY + (btnH + gap) * 3, btnW, btnH);
 
         add(startButton);
+        add(evolvingButton);
         add(optionsButton);
         add(exitButton);
 
@@ -56,6 +59,17 @@ public class MainPanel extends JPanel {
             mainClass.revalidate();
             mainClass.repaint();
             mainClass.worldSettingsPanel.requestFocusInWindow();
+        });
+
+        evolvingButton.addActionListener(e -> {
+            Sound.playClickSound();
+            stopAmbient();
+            mainClass.evolvingModePanel = new EvolvingModePanel(mainClass);
+            mainClass.getContentPane().removeAll();
+            mainClass.getContentPane().add(mainClass.evolvingModePanel);
+            mainClass.revalidate();
+            mainClass.repaint();
+            mainClass.evolvingModePanel.requestFocusInWindow();
         });
 
         optionsButton.addActionListener(e -> {

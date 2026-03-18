@@ -86,6 +86,23 @@ public class GamePanel extends JPanel implements KeyListener {
     /** When true the player eliminated all NPCs (displayed on game-over screen) */
     public volatile boolean victory = false;
 
+    // ── Evolving Mode State ───────────────────────────────────────────────
+
+    /** True when the game is running in Infinite Evolving Cells mode */
+    public boolean evolvingMode = false;
+
+    /** Current stage number (1-based); 0 for standard game mode */
+    public int currentStage = 0;
+
+    /**
+     * True while the player is viewing the stage-complete screen between stages.
+     * The game loop skips all logic (but still repaints) during this state.
+     */
+    public volatile boolean stageTransitioning = false;
+
+    /** Evolving mode progress save; null in standard mode */
+    private EvolvingProgressSave evolvingProgress = null;
+
     /**
      * When true the game loop is frozen while the player picks an upgrade.
      * Distinct from {@code paused} so the dev-log overlay is not shown
@@ -155,9 +172,17 @@ public class GamePanel extends JPanel implements KeyListener {
 
     // ── Constructor ──────────────────────────────────────────────────────
 
+    /**
+     * Standard game mode constructor.
+     * @param mainClass the top-level JFrame
+     * @param npcCount  number of NPC opponents to spawn
+     */
     public GamePanel(MainClass mainClass, int npcCount) {
         this.mainClass = mainClass;
         this.npcCount = npcCount;
+        this.evolvingMode = false;
+        this.currentStage = 0;
+        this.evolvingProgress = null;
         this.collisionHandler = new CollisionHandler(this);
         this.renderer = new GameRenderer(this);
 
@@ -198,6 +223,60 @@ public class GamePanel extends JPanel implements KeyListener {
         gameAmbientLine = Sound.playGameAmbient();
     }
 
+    /**
+     * Evolving mode constructor. Stage 1 starts automatically.
+     * The player's progress (max stage reached, highest score) is auto-saved.
+     * @param mainClass      the top-level JFrame
+     * @param evolvingProgress the loaded-or-new progress save for this player
+     */
+    public GamePanel(MainClass mainClass, EvolvingProgressSave evolvingProgress) {
+        this.mainClass = mainClass;
+        this.npcCount  = GameConstants.EVOLVING_BASE_NPC_COUNT; // stage 1 count
+        this.evolvingMode     = true;
+        this.currentStage     = 1;
+        this.evolvingProgress = evolvingProgress;
+        this.collisionHandler = new CollisionHandler(this);
+        this.renderer         = new GameRenderer(this);
+
+        setSize(MainClass.SCREEN_WIDTH, MainClass.SCREEN_HEIGHT);
+        setPreferredSize(new Dimension(MainClass.SCREEN_WIDTH, MainClass.SCREEN_HEIGHT));
+        setFocusable(true);
+        addKeyListener(this);
+        setVisible(true);
+
+        background = new Background();
+
+        playerCell = new Cell(MainClass.WORLD_WIDTH / 2, MainClass.WORLD_HEIGHT / 2, GameConstants.INITIAL_RADIUS);
+        playerCell.cellColor = playerColor;
+        playerCell.spawnAlpha = 1f;
+        playerCell.speedX = GameConstants.DEFAULT_SPEED;
+        playerCell.speedY = GameConstants.DEFAULT_SPEED;
+
+        double initVisW = MainClass.SCREEN_WIDTH / cameraZoom;
+        double initVisH = MainClass.SCREEN_HEIGHT / cameraZoom;
+        cameraX = playerCell.x + playerCell.cellRad - initVisW / 2.0;
+        cameraY = playerCell.y + playerCell.cellRad - initVisH / 2.0;
+        cameraX = Math.max(0, Math.min(cameraX, MainClass.WORLD_WIDTH - initVisW));
+        cameraY = Math.max(0, Math.min(cameraY, MainClass.WORLD_HEIGHT - initVisH));
+
+        Cell firstFood = generateNonOverlappingCell();
+        firstFood.cellColor = Color.BLUE;
+        foodCells.add(firstFood);
+
+        // Spawn stage 1 NPCs
+        spawnNPCsForEvolvingStage(1);
+
+        // Record stage 1 as started
+        if (evolvingProgress != null) {
+            evolvingProgress.updateAndSave(1, hud.score);
+        }
+
+        startCellSpawnThread();
+        startGameThread();
+
+        gameAmbientLine = Sound.playGameAmbient();
+    }
+
     // ── Public Accessors (for CollisionHandler and GameRenderer) ─────────
 
     public Cell getPlayerCell() { return playerCell; }
@@ -220,6 +299,10 @@ public class GamePanel extends JPanel implements KeyListener {
     public long getDisplayElapsedTime() {
         return finalElapsedTime >= 0 ? finalElapsedTime : hud.elapsedTime;
     }
+
+    public boolean isEvolvingMode()    { return evolvingMode; }
+    public int getCurrentStage()       { return currentStage; }
+    public boolean isStageTransitioning() { return stageTransitioning; }
 
     /** Returns the maximum number of food cells based on current world size and density */
     public int getMaxCells() {
@@ -272,6 +355,82 @@ public class GamePanel extends JPanel implements KeyListener {
             int cy = GameConstants.SPAWN_BORDER + random.nextInt(
                 Math.max(1, MainClass.WORLD_HEIGHT - 2 * GameConstants.SPAWN_BORDER));
             npcList.add(new NPC(cx, cy, GameConstants.INITIAL_RADIUS, usedNames, diff));
+        }
+    }
+
+    // ── Evolving Mode NPC Spawning ────────────────────────────────────────
+
+    /**
+     * Spawns NPCs for the given evolving mode stage.
+     * NPC count and difficulty distribution scale with stage number.
+     * Each NPC receives a random number of initial upgrades based on the player's
+     * current upgrade total and the stage number.
+     *
+     * <p>Difficulty distribution (linear interpolation across stages):
+     * <ul>
+     *   <li>Stage 1:  60% EASY, 30% MEDIUM, 10% HARD</li>
+     *   <li>Stage 11+: 10% EASY, 20% MEDIUM, 70% HARD</li>
+     * </ul>
+     *
+     * <p>NPC initial upgrades: each NPC receives between
+     * {@code max(0, stage-1)} and {@code playerUpgrades} upgrades (clamped).
+     *
+     * @param stage the stage number (1-based)
+     */
+    private void spawnNPCsForEvolvingStage(int stage) {
+        npcList.clear();
+
+        Set<String> usedNames = new HashSet<>();
+        usedNames.add(playerName);
+
+        // NPC count grows by EVOLVING_NPC_INCREMENT per stage, capped
+        int count = Math.min(
+            GameConstants.EVOLVING_BASE_NPC_COUNT + (stage - 1) * GameConstants.EVOLVING_NPC_INCREMENT,
+            GameConstants.EVOLVING_MAX_NPC_COUNT
+        );
+
+        // Difficulty distribution shifts harder with each stage (caps at stage 11)
+        double easyFrac   = Math.max(0.10, 0.60 - (stage - 1) * 0.05);
+        double hardFrac   = Math.min(0.70, 0.10 + (stage - 1) * 0.05);
+        double mediumFrac = Math.max(0.10, 1.0 - easyFrac - hardFrac);
+
+        int easyCount   = (int) Math.round(count * easyFrac);
+        int hardCount   = (int) Math.round(count * hardFrac);
+        int mediumCount = count - easyCount - hardCount;
+
+        // Determine upgrade seeding range from player's total upgrade levels
+        int playerUpgrades = upgradeManager.getTotalAppliedLevels();
+        int minUpgrades = Math.min(Math.max(0, stage - 1), playerUpgrades);
+        int maxUpgrades = playerUpgrades;
+
+        spawnEvolvingNPCsOfDifficulty(easyCount,   NPC.Difficulty.EASY,   usedNames, minUpgrades, maxUpgrades);
+        spawnEvolvingNPCsOfDifficulty(mediumCount,  NPC.Difficulty.MEDIUM, usedNames, minUpgrades, maxUpgrades);
+        spawnEvolvingNPCsOfDifficulty(hardCount,    NPC.Difficulty.HARD,   usedNames, minUpgrades, maxUpgrades);
+    }
+
+    /**
+     * Spawns {@code count} NPCs of the given difficulty and seeds them with a
+     * random number of initial upgrades in the range [minUpgrades, maxUpgrades].
+     */
+    private void spawnEvolvingNPCsOfDifficulty(int count, NPC.Difficulty diff,
+                                                Set<String> usedNames,
+                                                int minUpgrades, int maxUpgrades) {
+        for (int i = 0; i < count; i++) {
+            int cx = GameConstants.SPAWN_BORDER + random.nextInt(
+                Math.max(1, MainClass.WORLD_WIDTH - 2 * GameConstants.SPAWN_BORDER));
+            int cy = GameConstants.SPAWN_BORDER + random.nextInt(
+                Math.max(1, MainClass.WORLD_HEIGHT - 2 * GameConstants.SPAWN_BORDER));
+            NPC npc = new NPC(cx, cy, GameConstants.INITIAL_RADIUS, usedNames, diff);
+
+            // Seed initial upgrades
+            if (maxUpgrades > 0) {
+                int range = maxUpgrades - minUpgrades;
+                int upgradeCount = minUpgrades + (range > 0 ? random.nextInt(range + 1) : 0);
+                for (int u = 0; u < upgradeCount; u++) {
+                    npc.upgradeManager.applyRandomNPCUpgrade(npc);
+                }
+            }
+            npcList.add(npc);
         }
     }
 
@@ -381,7 +540,7 @@ public class GamePanel extends JPanel implements KeyListener {
     private void startGameThread() {
         Thread thread = new Thread(() -> {
             while (running) {
-                if (!paused && !gameOver && !upgradeSelecting) {
+                if (!paused && !gameOver && !upgradeSelecting && !stageTransitioning) {
                     // Fixed speed + any speed upgrades
                     if (!devSpeedOverride) {
                         double speed = GameConstants.DEFAULT_SPEED + playerSpeedBonus;
@@ -465,12 +624,16 @@ public class GamePanel extends JPanel implements KeyListener {
      * Called every tick after collision handling.
      */
     private void checkAllNPCsDead() {
-        if (gameOver || npcList.isEmpty()) return;
+        if (gameOver || stageTransitioning || npcList.isEmpty()) return;
         for (NPC npc : npcList) {
             if (npc.alive) return; // at least one alive
         }
-        // All NPCs are dead → victory
-        triggerVictory();
+        // All NPCs dead
+        if (evolvingMode) {
+            triggerStageComplete();
+        } else {
+            triggerVictory();
+        }
     }
 
     private void triggerVictory() {
@@ -487,6 +650,82 @@ public class GamePanel extends JPanel implements KeyListener {
         ToneGenerator.stopLine(gameAmbientLine);
         gameAmbientLine = null;
         SwingUtilities.invokeLater(this::showGameOverScreen);
+    }
+
+    // ── Evolving Mode Stage Transition ───────────────────────────────────
+
+    /**
+     * Called when all NPCs are eliminated in evolving mode.
+     * Saves progress, pauses the game loop, and shows the stage-complete screen.
+     */
+    private void triggerStageComplete() {
+        if (stageTransitioning || gameOver) return;
+        // Cancel pending upgrade selection (avoid overlap with stage screen)
+        if (upgradeSelecting || upgradeManager.isUpgradeReady()) {
+            upgradeSelecting = false;
+            upgradeManager.cancelPendingUpgrade();
+        }
+        hud.updateElapsedTime();
+        stageTransitioning = true;
+
+        // Save progress for the stage that was just cleared
+        if (evolvingProgress != null) {
+            evolvingProgress.updateAndSave(currentStage, hud.score);
+        }
+
+        SwingUtilities.invokeLater(this::showStageCompleteScreen);
+    }
+
+    /**
+     * Advances to the next stage: increments stage counter, spawns new NPCs,
+     * clears and refills food, then resumes the game loop.
+     * Must be called on the EDT (via button action listener).
+     */
+    private void nextStage() {
+        // Remove the NEXT STAGE button
+        Component[] components = getComponents();
+        for (Component c : components) {
+            if (c instanceof JButton && "next_stage_btn".equals(c.getName())) {
+                remove(c);
+            }
+        }
+
+        currentStage++;
+
+        // Record the new stage as started
+        if (evolvingProgress != null) {
+            evolvingProgress.updateAndSave(currentStage, hud.score);
+        }
+
+        // Clear existing NPCs and spawn for new stage
+        npcList.clear();
+        spawnNPCsForEvolvingStage(currentStage);
+
+        // Clear food — spawn thread will refill
+        foodCells.clear();
+
+        stageTransitioning = false;
+        requestFocusInWindow();
+        revalidate();
+        repaint();
+    }
+
+    /** Adds the "NEXT STAGE" button overlay on the EDT after a stage is cleared. */
+    private void showStageCompleteScreen() {
+        setLayout(null);
+
+        int bw = GameConstants.BUTTON_WIDTH + 60;
+        int bh = GameConstants.BUTTON_HEIGHT + 14;
+        StyledButton nextBtn = new StyledButton("NEXT STAGE \u25B6", GameConstants.BTN_PURPLE);
+        nextBtn.setFont(new Font(GameConstants.FONT_FAMILY, Font.BOLD, 20));
+        nextBtn.setBounds((MainClass.SCREEN_WIDTH - bw) / 2,
+            MainClass.SCREEN_HEIGHT - 100, bw, bh);
+        nextBtn.setName("next_stage_btn");
+        nextBtn.setFocusable(false);
+        nextBtn.addActionListener(e -> nextStage());
+        add(nextBtn);
+        revalidate();
+        repaint();
     }
 
     // ── Roguelite Passive Effects ────────────────────────────────────────
@@ -716,7 +955,15 @@ public class GamePanel extends JPanel implements KeyListener {
             upgradeSelecting = false;
             upgradeManager.cancelPendingUpgrade();
         }
+        // Cancel stage transition if dying during a weird edge case
+        stageTransitioning = false;
         gameOver = true;
+
+        // Save evolving progress on death
+        if (evolvingMode && evolvingProgress != null) {
+            evolvingProgress.updateAndSave(currentStage, hud.score);
+        }
+
         ToneGenerator.stopLine(gameAmbientLine);
         gameAmbientLine = null;
         SwingUtilities.invokeLater(this::showGameOverScreen);
@@ -739,10 +986,16 @@ public class GamePanel extends JPanel implements KeyListener {
     /** Stops game threads and returns to the main menu */
     private void returnToMenu() {
         running = false;
+        stageTransitioning = false;
         ToneGenerator.stopLine(gameAmbientLine);
         gameAmbientLine = null;
         if (devLogDialog != null) { devLogDialog.dispose(); devLogDialog = null; }
         paused = false;
+
+        // Final save when returning to menu from evolving mode
+        if (evolvingMode && evolvingProgress != null) {
+            evolvingProgress.updateAndSave(currentStage, hud.score);
+        }
 
         mainClass.mainPanel = new MainPanel(mainClass);
         mainClass.getContentPane().removeAll();

@@ -23,6 +23,7 @@ public class MainClass extends JFrame {
     public OptionsPanel optionsPanel;
     public GamePanel gamePanel;
     public WorldSettingsPanel worldSettingsPanel;
+    public EvolvingModePanel evolvingModePanel;
 
     public MainClass() {
         this.setTitle("Agar.io - Java Swing Clone");
