@@ -45,7 +45,10 @@ public final class GameConstants {
     public static final double MIN_DIVIDE_RADIUS = 0.7;
 
     // ── Camera ───────────────────────────────────────────────────────────
-    public static final double INITIAL_ZOOM     = 5.0;
+    public static final double INITIAL_ZOOM          = 5.0;
+    /** Lower starting zoom for evolving mode — the world is small (1280×720)
+     *  so zoom 5 would show only 256×144 px, causing a long disorienting zoom-out. */
+    public static final double EVOLVING_INITIAL_ZOOM = 3.0;
     public static final double MIN_ZOOM         = 0.8;
     public static final double ZOOM_LERP        = 0.03;
     public static final double CAMERA_LERP      = 0.15;
